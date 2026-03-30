@@ -273,19 +273,24 @@ def column_valid_times_utc(cycle_init: datetime, fhr_row: list[Optional[int]]) -
     return out
 
 
-def pick_column_index(valid_times: list[Optional[datetime]], target_valid: datetime) -> int:
-    """Choose column whose valid UTC is closest to NWS max-T period start."""
+def pick_column_index(
+    valid_times: list[Optional[datetime]],
+    valid_start_utc: datetime,
+    max_error_hours: float = 6.0,
+) -> Optional[int]:
+    """Choose column whose valid UTC is closest to valid_start_utc within max_error_hours."""
+    max_sec = max_error_hours * 3600.0
     best_j: Optional[int] = None
     best_err = 1e30
     for j, vt in enumerate(valid_times):
         if vt is None:
             continue
-        err = abs((vt - target_valid).total_seconds())
+        err = abs((vt - valid_start_utc).total_seconds())
+        if err > max_sec:
+            continue
         if err < best_err:
             best_err = err
             best_j = j
-    if best_j is None:
-        raise RuntimeError("No valid FHR columns in NBP block")
     return best_j
 
 
@@ -301,10 +306,9 @@ def fetch_pctmax_from_nbp_text(
 
     Returns (p10, p50, p90, meta).
     """
-    now = datetime.now(timezone.utc)
-    last_err: Optional[BaseException] = None
+    anchor_date = valid_start_utc.date()
     for day_off in (0, -1, -2):
-        d = (now + timedelta(days=day_off)).date()
+        d = anchor_date + timedelta(days=day_off)
         ymd = d.strftime("%Y%m%d")
         hours = list_blend_cycle_hours(ymd)
         if not hours:
@@ -316,8 +320,7 @@ def fetch_pctmax_from_nbp_text(
             url = nbp_text_url(ymd, hh)
             try:
                 block = stream_extract_station_block(url, station)
-            except (HTTPError, URLError, TimeoutError, OSError) as e:
-                last_err = e
+            except (HTTPError, URLError, TimeoutError, OSError):
                 continue
             if not block or len(block) < 4:
                 continue
@@ -329,7 +332,16 @@ def fetch_pctmax_from_nbp_text(
                 continue
             cycle_init = datetime(d.year, d.month, d.day, hh, tzinfo=timezone.utc)
             vts = column_valid_times_utc(cycle_init, fhr)
-            j = pick_column_index(vts, valid_start_utc)
+            vts_for_pick: list[Optional[datetime]] = []
+            for jcol in range(len(vts)):
+                fh = fhr[jcol] if jcol < len(fhr) else None
+                if fh is None or fh < 6 or fh > 48:
+                    vts_for_pick.append(None)
+                else:
+                    vts_for_pick.append(vts[jcol])
+            j = pick_column_index(vts_for_pick, valid_start_utc, 6.0)
+            if j is None:
+                continue
             p1 = rows["TXNP1"][j] if j < len(rows["TXNP1"]) else None
             p5 = rows["TXNP5"][j] if j < len(rows["TXNP5"]) else None
             p9 = rows["TXNP9"][j] if j < len(rows["TXNP9"]) else None
@@ -351,8 +363,8 @@ def fetch_pctmax_from_nbp_text(
                 )
             return p10, p50, p90, meta
     raise RuntimeError(
-        "Could not load NBP text (blend_nbptx) for station "
-        f"{station!r}. Last error: {last_err!r}"
+        "No NBP bulletin found with a column within 6hr of valid_start_utc="
+        f"{valid_start_utc.isoformat()} and FHR in [6,48]"
     )
 
 
