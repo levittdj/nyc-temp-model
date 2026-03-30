@@ -938,6 +938,16 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Collector captures all open event dates, not just today</div></div>
+        <div class="dec-why">Kalshi opens tomorrow&apos;s temperature market at 10am ET the day before. By mid-morning, two event dates are typically trading simultaneously. Collector now captures brackets for all open KXHIGHNY markets at each snapshot. Benefits: (1) early-market prices for tomorrow are the thinnest and most likely to be mispriced, (2) paired observations at different forecast lead times enable lead-time analysis from the same model run, (3) effectively doubles the sample size for trend analysis. The morning_model.py 7am evaluation run still targets today&apos;s event_date only. Multi-day capture is collector-only.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Kalshi bracket boundary convention confirmed from CFTC filings</div></div>
+        <div class="dec-why">NHIGH contract terms (CFTC filing) confirm: tail brackets use strict inequality (&apos;greater than 69&apos; excludes exactly 69, &apos;less than 62&apos; excludes exactly 62). Between brackets are inclusive of both endpoints (&apos;62-63&apos; includes both 62 and 63). NWS CLI reports integer °F only, so the outcome space is discrete with no edge cases.<br><br>For the continuous probability model, a half-degree continuity correction makes boundaries contiguous:<br>&nbsp;&nbsp;&lt;62&nbsp;&nbsp;&nbsp;&nbsp;integrates&nbsp;&nbsp;-inf&nbsp;&nbsp;to&nbsp;61.5<br>&nbsp;&nbsp;62-63&nbsp;&nbsp;integrates&nbsp;&nbsp;61.5&nbsp;&nbsp;to&nbsp;63.5<br>&nbsp;&nbsp;64-65&nbsp;&nbsp;integrates&nbsp;&nbsp;63.5&nbsp;&nbsp;to&nbsp;65.5<br>&nbsp;&nbsp;66-67&nbsp;&nbsp;integrates&nbsp;&nbsp;65.5&nbsp;&nbsp;to&nbsp;67.5<br>&nbsp;&nbsp;68-69&nbsp;&nbsp;integrates&nbsp;&nbsp;67.5&nbsp;&nbsp;to&nbsp;69.5<br>&nbsp;&nbsp;&gt;69&nbsp;&nbsp;&nbsp;&nbsp;integrates&nbsp;&nbsp;69.5&nbsp;&nbsp;to&nbsp;inf<br><br>This ensures all probability mass is captured and model_prob sums to 1.0. A sanity check assertion enforces this at runtime.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-03-30 — Logger schema expanded to separate event_date from snapshot timing</div></div>
         <div class="dec-why">Original spec used a single &apos;date&apos; field. This is ambiguous when (a) collector.py takes multiple snapshots per day for the same event, (b) markets for tomorrow&apos;s temperature are already open during today&apos;s collection window, and (c) different NBM cycles produce different model_prob values for the same event_date. New schema uses event_date (which day&apos;s high temperature settles this market), snapshot_ts (when was this data captured), nbm_cycle (which NBM run produced the percentiles), and forecast_lead_hours (how far ahead is the forecast). The morning_model.py 7am run is tagged snapshot_type = &apos;morning&apos; and is the only data used for v0 evaluation gates.</div>
       </div>
@@ -954,7 +964,7 @@ section { margin-bottom: 8px }
 
       <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Intraday price + model collector (collector.py) added to v0</div></div>
-        <div class="dec-why">Separate script runs on VM via cron. Captures Kalshi bracket yes-prices every 30 minutes, recomputes model_prob from fresh NBM percentiles every 60 minutes, and pulls KNYC METAR observations and HRRR max-T forecasts hourly. Writes to separate SQLite table(s). Does NOT replace the morning_model.py 7am run. Purpose: capture intraday information flow, measure edge decay, and determine how fast the market incorporates new data. V0 evaluation metrics (Brier, permutation test, paper P&amp;L) use the 7am morning run ONLY. Hourly snapshots are analysis data, not evaluation data.</div>
+        <div class="dec-why">Separate script runs on VM via cron. Captures Kalshi bracket yes-prices every 30 minutes, recomputes model_prob from fresh NBM percentiles every 60 minutes, and pulls KNYC METAR observations and HRRR max-T forecasts hourly. Writes to separate SQLite table(s). Does NOT replace the morning_model.py 7am run. Purpose: capture intraday information flow, measure edge decay, and determine how fast the market incorporates new data. V0 evaluation metrics (Brier, permutation test, paper P&amp;L) use the 7am morning run ONLY. Hourly snapshots are analysis data, not evaluation data.<br><br><strong>Deploy note:</strong> collector enumerates all open KXHIGHNY markets at each run (today + tomorrow when open) rather than hardcoding a single event_date. Prefer Kalshi API filtering by series ticker; otherwise filter client-side.</div>
       </div>
 
       <div class="dec">
@@ -1004,17 +1014,17 @@ section { margin-bottom: 8px }
         </div>
       </div>
 
-      <div class="sec">Blocks v0</div>
       <div class="card">
         <div class="oq">
-          <span class="oq-p h">H</span>
+          <span class="oq-p r">OK</span>
           <div>
             <div class="oq-q">Does Kalshi API return bracket boundaries as numeric values or only as label strings?</div>
-            <div class="oq-ctx">The interpolation needs numeric L and U. If only strings like ">=72F", we need a parser. Check API docs before writing data_pipeline.py.</div>
+            <div class="oq-ctx">Resolved (morning_model.py, v0). The API returns ticker strings that encode the boundary convention:<br><br>- &apos;T&apos; prefix = tail bracket (strict inequality)<br>&nbsp;&nbsp;T62 = strictly less than 62°F (high of exactly 62 does NOT fall here)<br>&nbsp;&nbsp;T69 = strictly greater than 69°F (high of exactly 69 does NOT fall here)<br><br>- &apos;B&apos; prefix = between bracket (inclusive of both endpoints)<br>&nbsp;&nbsp;B62.5 = between 62 and 63 inclusive (high of exactly 62 DOES fall here)<br>&nbsp;&nbsp;B64.5 = between 64 and 65 inclusive<br><br>Source: NHIGH contract terms filed with CFTC (<code>kalshi-public-docs.s3.amazonaws.com/contract_terms/NHIGH.pdf</code>). The payout criterion for &apos;greater than&apos; strictly excludes the threshold value. &apos;Less than&apos; strictly excludes the threshold value. &apos;Between&apos; is inclusive.<br><br>Since NWS CLI reports integer °F only, the outcome space is discrete integers with no ambiguity. Each integer maps to exactly one bracket.<br><br>For the continuous zone interpolation, apply a half-degree continuity correction: bracket &apos;62-63&apos; integrates from 61.5 to 63.5, capturing all probability mass closer to 62 or 63 than to any adjacent integer. This makes boundaries contiguous and probabilities sum to 1.0.</div>
           </div>
         </div>
       </div>
 
+      <div class="sec">Blocks v0</div>
       <div class="card">
         <div class="oq">
           <span class="oq-p h">H</span>

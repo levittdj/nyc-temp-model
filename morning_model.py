@@ -64,6 +64,7 @@ class BracketRow:
 
     ticker: str
     title: str
+    bracket_label: str
     lower_f: float
     upper_f: float
     market_price: float
@@ -369,24 +370,62 @@ def fetch_pctmax_from_nbp_text(
     )
 
 
-def kalshi_bracket_bounds(title: str, ticker: str) -> tuple[float, float]:
+def kalshi_integration_bounds(title: str, ticker: str) -> tuple[str, float, float]:
     """
-    Parse Kalshi KXHIGHNY title into (lower_f, upper_f) with ±inf for open tails.
+    Convert one Kalshi bracket into numeric integration limits for a continuous CDF.
 
-    Uses inclusive-lower / exclusive-upper mass: (L,U); inf when unbounded.
+    Kalshi NHIGH settlement convention (from CFTC filing):
+    - "greater than X" = strictly > X (exactly X does NOT pay out)
+    - "less than X"    = strictly < X (exactly X does NOT pay out)
+    - "between X and Y" = inclusive of both X and Y
+
+    NWS CLI reports integer °F. Outcome space is discrete integers.
+
+    Continuity correction for zone interpolation:
+    Since the model uses a continuous probability distribution but outcomes are integers,
+    we apply +/- 0.5 to bracket boundaries so that each integer maps to the bracket whose
+    continuous interval contains it.
+    Example: bracket "62-63" integrates [61.5, 63.5].
+
+    Returns (bracket_label, integration_lower_f, integration_upper_f).
     """
+    # Prefer the ticker encoding: ...-B62.5 (between) and ...-T62 / ...-T69 (tails)
+    # Direction for tails is read from the title ("<" / ">" or less/greater than).
+    m_b = re.search(r"-B(\d+(?:\.\d+)?)\b", ticker)
+    if m_b:
+        mid = float(m_b.group(1))  # e.g. 62.5 represents 62-63 inclusive
+        lo = mid - 1.0
+        hi = mid + 1.0
+        label = f"{int(mid - 0.5)}-{int(mid + 0.5)}"
+        return label, lo, hi
+
+    m_t = re.search(r"-T(\d+(?:\.\d+)?)\b", ticker)
+    if m_t:
+        x = float(m_t.group(1))
+        # Tail direction: title text is unambiguous ("<" / ">" or less/greater than).
+        is_hi = bool(re.search(r"greater\s+than|>\s*\d+", title, re.I))
+        is_lo = bool(re.search(r"less\s+than|<\s*\d+", title, re.I))
+        if is_hi and not is_lo:
+            return f">{int(x)}", x + 0.5, float("inf")
+        if is_lo and not is_hi:
+            return f"<{int(x)}", float("-inf"), x - 0.5
+        raise ValueError(f"Cannot infer tail direction from title: {title!r} ({ticker})")
+
+    # Fallback for tests / unexpected tickers: parse the human title and apply correction.
     m_band = re.search(r"be\s+(\d+)\s*-\s*(\d+)\s*°", title, re.I)
     if m_band:
-        lo = float(m_band.group(1))
-        hi = float(m_band.group(2))
-        return lo, hi
-    m_hi = re.search(r">\s*(\d+)\s*°", title, re.I)
+        lo_i = float(m_band.group(1))
+        hi_i = float(m_band.group(2))
+        return f"{int(lo_i)}-{int(hi_i)}", lo_i - 0.5, hi_i + 0.5
+    m_hi = re.search(r">\s*(\d+)\s*°|greater\s+than\s+(\d+)\s*°", title, re.I)
     if m_hi:
-        return float(m_hi.group(1)), float("inf")
-    m_lo = re.search(r"<\s*(\d+)\s*°", title, re.I)
+        x = float(m_hi.group(1) or m_hi.group(2))
+        return f">{int(x)}", x + 0.5, float("inf")
+    m_lo = re.search(r"<\s*(\d+)\s*°|less\s+than\s+(\d+)\s*°", title, re.I)
     if m_lo:
-        return float("-inf"), float(m_lo.group(1))
-    raise ValueError(f"Cannot parse bracket from title: {title!r} ({ticker})")
+        x = float(m_lo.group(1) or m_lo.group(2))
+        return f"<{int(x)}", float("-inf"), x - 0.5
+    raise ValueError(f"Cannot parse bracket from title/ticker: {title!r} ({ticker})")
 
 
 def kalshi_mid_price(m: dict[str, Any]) -> float:
@@ -485,7 +524,7 @@ def run_model(
     for m in kalshi_markets:
         title = str(m.get("title", ""))
         ticker = str(m.get("ticker", ""))
-        lo, hi = kalshi_bracket_bounds(title, ticker)
+        blabel, lo, hi = kalshi_integration_bounds(title, ticker)
         price = kalshi_mid_price(m)
         bid = m.get("yes_bid_dollars")
         ask = m.get("yes_ask_dollars")
@@ -496,6 +535,7 @@ def run_model(
             BracketRow(
                 ticker=ticker,
                 title=title,
+                bracket_label=blabel,
                 lower_f=lo,
                 upper_f=hi,
                 market_price=price,
@@ -506,6 +546,15 @@ def run_model(
             )
         )
     rows.sort(key=lambda r: r.lower_f if not math.isinf(r.lower_f) else -999)
+    # Sanity check: only meaningful when the market list covers both tails (full partition).
+    has_low_tail = any(math.isinf(r.lower_f) and r.lower_f < 0 for r in rows)
+    has_high_tail = any(math.isinf(r.upper_f) and r.upper_f > 0 for r in rows)
+    if has_low_tail and has_high_tail:
+        total = sum(r.model_prob for r in rows)
+        assert abs(total - 1.0) < 0.001, (
+            f"model_prob sum = {total:.6f}, expected 1.0. "
+            f"Check bracket boundary continuity correction."
+        )
     return rows
 
 
@@ -533,14 +582,14 @@ def synthetic_self_test() -> None:
         (50.0, 60.0, 70.0),
         kalshi_markets=[
             {
-                "ticker": "TEST-B59",
+                "ticker": "KXHIGHNY-26MAR30-B59.5",
                 "title": "Will the **high temp in NYC** be 59-60° on Mar 30, 2026?",
                 "yes_bid_dollars": "0.40",
                 "yes_ask_dollars": "0.42",
             }
         ],
     )
-    assert len(rows) == 1 and rows[0].ticker == "TEST-B59"
+    assert len(rows) == 1 and rows[0].ticker.endswith("B59.5")
     assert rows[0].edge == rows[0].model_prob - rows[0].market_price
     print("synthetic_self_test: ok")
 

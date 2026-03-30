@@ -204,7 +204,7 @@ def log_morning_run(
     try:
         ensure_schema(conn)
         for r in rows:
-            label = bracket_label(r.lower_f, r.upper_f)
+            label = getattr(r, "bracket_label", None) or bracket_label(r.lower_f, r.upper_f)
             lo_db, hi_db = _bounds_db(r.lower_f, r.upper_f)
             bid = getattr(r, "market_bid", None)
             ask = getattr(r, "market_ask", None)
@@ -274,7 +274,7 @@ def print_terminal_review(target: date, rows: list[Any], file: Any = None) -> No
         "-" * 52,
     ]
     for r in rows:
-        lab = bracket_label(r.lower_f, r.upper_f)
+        lab = getattr(r, "bracket_label", None) or bracket_label(r.lower_f, r.upper_f)
         lines.append(
             f"{lab:<12} {r.model_prob:8.4f} {r.market_price:8.4f} {r.edge:8.4f} {'—':>8}"
         )
