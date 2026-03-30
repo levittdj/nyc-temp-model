@@ -52,6 +52,15 @@ morning_model.py     -- core v0 model
 logger.py            -- SQLite log + terminal output
 records.json         -- all-time KNYC daily records (one-time build)
 
+## VM deployment (collector only)
+- VM runs collector.py via crontab (every 30 min, 6am-midnight ET)
+- morning_model.py runs manually at 7am from local machine or SSH
+- Database: data/tempmodel.db on the VM
+- Logs: logs/collector.log on the VM
+- Health check: logs/last_success heartbeat, checked every 2 hours
+- Code updates: manual git pull on VM after testing locally
+- Do not add morning_model.py to cron until 10+ days of stable manual runs
+
 ## Source of truth
 project_docs.html    -- strategy, hypothesis, decisions log, build tracker, risk
 Do not rely on lean_v1_spec.html -- it is stale and contradicts current decisions.

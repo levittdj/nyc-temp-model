@@ -591,6 +591,14 @@ section { margin-bottom: 8px }
               <div class="task-note"><code>--test</code> synthetic self-test; <code>--mock-nbm</code> for dry runs.</div>
             </div>
           </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Morning model continues to run manually in v0 -- do not automate</div>
+              <div class="task-note">The 7am morning run uses snapshot_type=&apos;morning&apos; and is the controlled v0 evaluation instrument. It runs from your local machine or via SSH into the VM, manually triggered. Do NOT add it to cron until at least 10 days of stable manual runs confirm the output is correct and the pull timing is right. If you later add it to cron, it must be a separate cron entry from the collector and must write snapshot_type=&apos;morning&apos; to distinguish evaluation data from intraday collection data.</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -653,6 +661,54 @@ section { margin-bottom: 8px }
             <div class="task-body">
               <div class="task-text">Capture next-day market alongside today's market</div>
               <div class="task-note">If Kalshi has already opened tomorrow&apos;s temperature market, log those brackets too with event_date = tomorrow and forecast_lead_hours reflecting the longer lead time. Enables analysis of how edge differs at 7hr vs 31hr forecast horizons. Lower priority than same-day collection -- skip if it complicates the initial build.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Create collector.sh wrapper script</div>
+              <div class="task-note">Shell script that activates the Python environment, runs collector.py, and logs stdout/stderr to a rotating log file. Captures exit code. Example:<br><br><code>#!/usr/bin/env bash<br>set -euo pipefail<br>cd /home/&lt;user&gt;/nyc-temp-model<br>source .venv/bin/activate<br>python collector.py &gt;&gt; logs/collector.log 2&gt;&amp;1</code><br><br>The wrapper keeps cron jobs simple and ensures the right Python environment is always used.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Create health check / failure alerting</div>
+              <div class="task-note">After each collector run, check if the SQLite database was updated within the expected window. If 3+ consecutive runs produce no new rows, write to a failure log. For v0, checking the failure log manually is acceptable. For v1, this triggers a Telegram alert. Simplest approach: collector.py writes a heartbeat timestamp to a file (e.g. logs/last_success). A separate cron job checks the heartbeat age every 2 hours and appends to logs/alert.log if stale.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Configure cron schedule on VM</div>
+              <div class="task-note">Two cron entries:<br><br><code># Kalshi prices + model_prob recompute (every 30 min, 6am-midnight ET)<br>*/30 6-23 * * * /home/&lt;user&gt;/nyc-temp-model/collector.sh<br><br># METAR + HRRR observational data (hourly, 6am-midnight ET)<br>0 6-23 * * * /home/&lt;user&gt;/nyc-temp-model/obs_collector.sh</code><br><br>Time window 6am-midnight ET covers market open through late settlement. Adjust for UTC offset on the VM (if VM is UTC, 6am ET = 10:00 or 11:00 UTC depending on DST).<br><br>Morning model runs separately -- NOT via cron in v0. Continue running morning_model.py manually at 7am from a local terminal.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Git pull strategy for VM</div>
+              <div class="task-note">The VM runs code from a git clone of the repo. When pushing fixes from the dev machine, SSH into the VM and run git pull before the next collection cycle. Do NOT set up automatic git pull -- you want to control when new code goes live on the collector. For v0, manual git pull after testing locally is the right workflow.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">SQLite database location and backup</div>
+              <div class="task-note">Database lives at /home/&lt;user&gt;/nyc-temp-model/data/tempmodel.db (or similar). The .gitignore already excludes .sqlite and .db files. For v0 backup: cron job copies the database to a dated backup file once per day.<br><br><code># Daily backup at 1am ET<br>0 1 * * * cp /home/&lt;user&gt;/nyc-temp-model/data/tempmodel.db \\<br>  /home/&lt;user&gt;/nyc-temp-model/data/backups/tempmodel_$(date +\\%Y\\%m\\%d).db</code><br><br>After 30 days this is ~30 small files. Good enough for v0. Do not over-engineer backup infrastructure.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Verify cron is producing data after first 24 hours</div>
+              <div class="task-note">After deploying, wait 24 hours, then query the SQLite database:<br><br><code>SELECT event_date, COUNT(*) as snapshots,<br>       MIN(snapshot_ts) as first, MAX(snapshot_ts) as last<br>FROM price_snapshots<br>GROUP BY event_date;</code><br><br>Should show ~36 snapshots per event_date (every 30 min from 6am to midnight). If significantly fewer, check logs/collector.log for errors. Common issues: wrong Python path in wrapper, missing .env file on VM, NBM endpoint returning errors for certain hours.</div>
             </div>
           </div>
         </div>
@@ -938,6 +994,11 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — VM deployment uses plain crontab, not a process manager</div></div>
+        <div class="dec-why">collector.py is a run-and-exit script, not a long-running daemon. Plain crontab on the VM is the simplest scheduler: no extra dependencies, no process manager configuration, easy to debug. Each cron invocation runs the script, writes to SQLite, and exits. If a run fails, the next invocation 30 minutes later tries again -- at most one snapshot is lost. Shell wrapper script handles virtualenv activation and log routing. Health check via heartbeat file, checked by a separate cron job every 2 hours. morning_model.py remains a manual 7am run in v0 -- it is not added to cron.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Collector captures all open event dates, not just today</div></div>
         <div class="dec-why">Kalshi opens tomorrow&apos;s temperature market at 10am ET the day before. By mid-morning, two event dates are typically trading simultaneously. Collector now captures brackets for all open KXHIGHNY markets at each snapshot. Benefits: (1) early-market prices for tomorrow are the thinnest and most likely to be mispriced, (2) paired observations at different forecast lead times enable lead-time analysis from the same model run, (3) effectively doubles the sample size for trend analysis. The morning_model.py 7am evaluation run still targets today&apos;s event_date only. Multi-day capture is collector-only.</div>
       </div>
@@ -1147,6 +1208,13 @@ section { margin-bottom: 8px }
 
       <div class="sec">Operational risks</div>
       <div class="card">
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">VM downtime or cron failure causes gaps in intraday data</div>
+            <div class="risk-m">Mitigation: Heartbeat file + alert log catches failures within 2 hours. SQLite is append-only so partial data is never corrupted. Missing snapshots leave gaps but do not invalidate the morning model evaluation (which runs separately). For v0, occasional gaps are acceptable -- the intraday data is analysis context, not the primary evaluation instrument. If the VM is unreliable, the morning model still runs from the local machine.</div>
+          </div>
+        </div>
         <div class="risk">
           <span class="rsev md">M</span>
           <div class="risk-body">
