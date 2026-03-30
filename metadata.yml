@@ -1,0 +1,71 @@
+title: NYC Temp Model
+databases:
+  nyc_temp_log:
+    path: nyc_temp_log.sqlite
+    queries:
+      latest_morning_snapshot: |-
+        SELECT event_date, bracket_label, model_prob, market_price, edge,
+               outcome, actual_max_f
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND event_date = (SELECT MAX(event_date) FROM bracket_snapshots
+                            WHERE snapshot_type = 'morning')
+        ORDER BY bracket_lower_f
+
+      edge_summary_by_date: |-
+        SELECT event_date,
+               SUM(CASE WHEN edge > 0 THEN 1 ELSE 0 END) as positive_edge_brackets,
+               SUM(CASE WHEN edge < 0 THEN 1 ELSE 0 END) as negative_edge_brackets,
+               ROUND(AVG(edge), 4) as mean_edge,
+               actual_max_f
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+        GROUP BY event_date
+        ORDER BY event_date DESC
+
+      missing_backfills: |-
+        SELECT DISTINCT event_date
+        FROM bracket_snapshots
+        WHERE actual_max_f IS NULL
+          AND event_date < date('now', '-1 day')
+        ORDER BY event_date
+
+      edge_by_bracket_position: |-
+        SELECT bracket_label,
+               ROUND(AVG(edge), 4) as mean_edge,
+               ROUND(AVG(market_price), 4) as mean_market_price,
+               COUNT(DISTINCT event_date) as n_days,
+               ROUND(AVG(CASE WHEN outcome = 1 THEN 1.0 ELSE 0.0 END), 4)
+                 as win_rate
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND outcome IS NOT NULL
+        GROUP BY bracket_label
+        ORDER BY mean_market_price DESC
+
+      intraday_edge_decay: |-
+        SELECT event_date,
+               ROUND(hours_to_settle, 0) as hours_bucket,
+               bracket_label,
+               ROUND(AVG(edge), 4) as mean_edge,
+               COUNT(*) as n_snapshots
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'intraday'
+        GROUP BY event_date, hours_bucket, bracket_label
+        ORDER BY event_date DESC, hours_bucket DESC
+
+      flb_test: |-
+        SELECT
+          CASE
+            WHEN market_price >= 0.50 THEN 'expensive (>=50c)'
+            WHEN market_price <= 0.15 THEN 'cheap (<=15c)'
+            ELSE 'middle (15c-50c)'
+          END as price_bucket,
+          ROUND(AVG(edge), 4) as mean_edge,
+          COUNT(*) as n_observations,
+          ROUND(AVG(CASE WHEN outcome=1 THEN 1.0 ELSE 0.0 END), 4)
+            as win_rate
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND outcome IS NOT NULL
+        GROUP BY price_bucket

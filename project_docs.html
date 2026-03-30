@@ -188,7 +188,7 @@ body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradi
 .rsev.hi{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
 .rsev.md{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
 .rsev.lo{background:var(--bg3);color:var(--text3);border:1px solid var(--border2)}
-.risk-body{}
+.risk-body{display:block}
 .risk-t{color:var(--text);margin-bottom:2px;line-height:1.4}
 .risk-m{font-size:11px;color:var(--text3)}
 
@@ -325,149 +325,29 @@ section { margin-bottom: 8px }
     <div class="acc-inner">
       <div class="eyebrow">Single source of truth</div>
       <div class="panel-title">Project status</div>
-      <div class="panel-lead">Update this doc before changing code. If the spec and the code disagree, the spec is wrong -- fix the spec first, then the code.</div>
+      <div class="panel-lead">This project is an evidence-gathering instrument. The goal is to learn quickly whether a repeatable pricing gap exists — not to build a production trading system.</div>
 
-      <div class="note amber"><strong>Current priority: falsify the hypothesis as fast as possible.</strong> Build v0 -- the minimum instrument to determine whether mispricing exists, what direction it takes (body or tail), and how stable it is. </div>
+      <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
 
-      <div class="note green"><strong>Progress (2026-03-30):</strong> v0 code path is complete: <code>calibration.py</code>, <code>morning_model.py</code>, and <code>logger.py</code> with schema v2. NBM triple from NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9); column pick matches the NWS max-T <em>local</em> calendar day with FHR in [6, 48] (see Decisions). Kalshi mid-prices via public trade API (bid/ask captured when available). Each run writes one snapshot per bracket to <code>nyc_temp_log.sqlite</code> table <code>bracket_snapshots</code> keyed by <code>event_date</code> + <code>snapshot_ts</code> + <code>snapshot_type</code> + <code>bracket_label</code>, and logs <code>nbm_cycle</code>, <code>forecast_lead_hours</code>, and market maturity fields (<code>market_open_ts</code>, <code>hours_since_open</code>, <code>hours_to_settle</code>). Prints a bracket table on stderr; use <code>--no-log</code> to skip. <strong>Next v0 step:</strong> daily paper run + backfill <code>actual_max_f</code> / <code>outcome</code> from NWS CLI when ready (not automated yet).</div>
+      <div class="note green"><strong>Progress (2026-03-30):</strong> v0 is operational end-to-end: we can generate model probabilities, capture market prices, log snapshots to SQLite, and backfill outcomes after settlement. The remaining work is operational discipline: run it daily, keep backfills current, and review results in Datasette.</div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
         <span class="ver-tag v0">V0</span>
-        <div class="ver-label"><strong>Hypothesis instrument.</strong> Three files. Morning model only. Paper trade. Manual review. Goal: evidence, not profit.</div>
+        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.</div>
       </div>
 
       <div class="sec">What comes next if v0 shows signal</div>
       <div class="ver-banner v1">
         <span class="ver-tag v1">V1</span>
-        <div class="ver-label"><strong>Automated betting system.</strong> Regime filter, intraday engine, Telegram alerts, live bets. Only built if v0 data justifies it.</div>
+        <div class="ver-label"><strong>Automation (optional).</strong> Only pursued if v0 shows a repeatable, economically meaningful edge.</div>
       </div>
-
-      <div class="sec">File status</div>
-      <table class="t">
-        <thead><tr><th>File</th><th>Version</th><th>Status</th></tr></thead>
-        <tbody>
-          <tr><td>calibration.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Done -- 3yr KNYC ASOS + ERA5 proxy; OLS → <code>nbm_bias</code> in <code>config.json</code>. Optional: <code>records.json</code> for record-proximity flag.</td></tr>
-          <tr><td>morning_model.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Built -- NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9), local-day column match + FHR [6,48], zone CDF, KXHIGHNY mids, JSON stdout; <code>--mock-nbm</code> / <code>--test</code></td></tr>
-          <tr><td>logger.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Done -- SQLite schema v2 in <code>bracket_snapshots</code> (event_date + snapshot_ts + snapshot_type; logs nbm_cycle, forecast_lead_hours, and market maturity). Invoked from <code>morning_model</code> after JSON; stderr review; <code>--log-db</code> / <code>--no-log</code>. Backfill columns still manual.</td></tr>
-          <tr><td>regime.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- tune from v0 data</td></tr>
-          <tr><td>intraday_engine.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- separate hypothesis</td></tr>
-          <tr><td>alerts.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- not needed for evidence</td></tr>
-          <tr><td>main.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- manual review at v0</td></tr>
-        </tbody>
-      </table>
 
       <div class="sec">How to use this doc</div>
       <div class="cbody" style="font-size:13px;color:var(--text2);line-height:1.7">
         <strong style="color:var(--text)">Before every Claude session:</strong> open Build tab, find current task, paste the relevant spec section with the file you want to build.<br><br>
         <strong style="color:var(--text)">When a design decision is made:</strong> add it to Decisions tab before writing code. Date it.<br><br>
         <strong style="color:var(--text)">When v0 data comes in:</strong> update Hypothesis tab. That data determines whether v1 gets built.
-      </div>
-    </div>
-  </div>
-</div>
-<div class="acc-item">
-  <input type="checkbox" id="acc-evolution" class="acc-toggle">
-  <label class="acc-header" for="acc-evolution">
-    <span class="acc-title">v0 vs v1</span>
-    <span class="acc-icon">&#x203a;</span>
-  </label>
-  <div class="acc-body">
-    <div class="acc-inner">
-      <div class="eyebrow">System evolution</div>
-      <div class="panel-title">v0 vs v1</div>
-      <div class="panel-lead">v0 is the minimum instrument to falsify the core hypothesis. v1 is a production betting system. v1 only gets built if v0 shows evidence. Intraday is in v1 because it is a separate, high-conviction hypothesis -- not because it is unimportant.</div>
-
-      <div class="sec">The gate between them</div>
-      <div class="card">
-        <div class="clabel amber">v0 to v1 unlock criteria</div>
-        <div class="cbody">After 20-30 days of v0 paper trading:<br><br>
-        <strong>1. Repeatable gap.</strong> model_prob differs from market_price in a consistent direction across at least 60% of flagged brackets.<br><br>
-        <strong>2. Beats all baselines.</strong> Hypothetical P&amp;L using model_prob beats NBM p50 only, naive normal distribution, and no-model single-best-bracket bets.<br><br>
-        <strong>3. Not noise.</strong> Results are not indistinguishable from random variation given the sample size.<br><br>
-        If all three hold, build v1. If any fail, diagnose before adding complexity.</div>
-      </div>
-
-      <div class="sec">Component evolution</div>
-      <div class="evo">
-        <div class="evo-header">
-          <div></div>
-          <div class="evo-header-cell v0">V0 -- build now</div>
-          <div class="evo-header-cell v1">V1 -- if signal confirmed</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Goal</div>
-          <div class="evo-cell evo-v0">Falsify hypothesis. Collect evidence.</div>
-          <div class="evo-cell evo-v1">Automated betting system.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Files</div>
-          <div class="evo-cell evo-v0">3 files. calibration, morning_model, logger.</div>
-          <div class="evo-cell evo-v1">Add regime, intraday, alerts, main.py.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Probability model</div>
-          <div class="evo-cell evo-v0">Zone interpolation. p10/p50/p90 + nbm_bias. No other adjustments.</div>
-          <div class="evo-cell evo-v1">Same model. Thresholds tuned from v0 data, not guessed.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Regime filter</div>
-          <div class="evo-cell evo-v0">Not present. Log regime inputs (spread, wind, sky) for analysis only.</div>
-          <div class="evo-cell evo-v1">Add filter. Use v0 data to set real thresholds, not hand-tuned.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Intraday</div>
-          <div class="evo-cell evo-v0">Not present. Morning model only.</div>
-          <div class="evo-cell evo-v1">Add intraday engine. High-conviction hypothesis. Validated independently from morning model.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Sizing</div>
-          <div class="evo-cell evo-v0">Not applicable. Paper trades only.</div>
-          <div class="evo-cell evo-v1">Flat tiers (0.5 / 1.5 / 2.5u). Start at 50% for first 10 live days.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Alerts</div>
-          <div class="evo-cell evo-v0">None. Check output manually each morning.</div>
-          <div class="evo-cell evo-v1">Telegram bot. 3 windows: 7am, intraday conditional, 6pm outcome.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Logging</div>
-          <div class="evo-cell evo-v0">20 SQLite columns (8 bracket + 12 day-level). Unconditional logging, no v0 filters. See Build Tracker logger task.</div>
-          <div class="evo-cell evo-v1">Extended fields beyond v0. Regime components, trajectory delta, entry/exit prices, would_have_won flag.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Deployment</div>
-          <div class="evo-cell evo-v0">Run locally. Manual trigger. No scheduler needed.</div>
-          <div class="evo-cell evo-v1">Railway.app. Schedule library. Always-on.</div>
-        </div>
-        <div class="evo-row">
-          <div class="evo-cell evo-label">Thresholds</div>
-          <div class="evo-cell evo-v0">None. Log everything, flag nothing automatically.</div>
-          <div class="evo-cell evo-v1">Set from v0 data. Edge cutoffs, skip criteria, trajectory delta calibrated empirically.</div>
-        </div>
-      </div>
-
-      <div class="sec">Why intraday is v1, not cut</div>
-      <div class="note purple"><strong>Intraday is a separate hypothesis:</strong> the market lags observed temperature data in the 12pm-2pm window because retail bettors anchor to the morning forecast and check back infrequently. This is distinct from the morning mispricing hypothesis and could hold even if the morning model has no edge. It stays in v1 because it requires the morning model infrastructure to exist first, and because validating it independently needs live prices -- not paper trades. High conviction means build it in v1, not v0.</div>
-
-      <div class="sec">What v0 data tells us about v1</div>
-      <div class="card-row">
-        <div class="card">
-          <div class="clabel amber">Regime thresholds</div>
-          <div class="cbody">v0 logs spread, wind sector, sky cover every day but applies no filter. After 30 days: plot model error vs spread. The data tells you where the hard skip threshold should actually be -- not 16F because it sounded reasonable.</div>
-        </div>
-        <div class="card">
-          <div class="clabel blue">Edge cutoffs</div>
-          <div class="cbody">v0 logs all edge values, not just those above 0.12. After 30 days: at what edge level did bets actually win? That number sets the v1 signal threshold. Right now 0.12 is a guess.</div>
-        </div>
-        <div class="card">
-          <div class="clabel purple">Intraday setup</div>
-          <div class="cbody">v0 also logs overnight low (for path baseline). After 30 days: on days where morning model showed edge, how much additional edge did intraday offer vs just holding? Quantifies the intraday opportunity.</div>
-        </div>
-        <div class="card">
-          <div class="clabel green">Kelly viability</div>
-          <div class="cbody">v0 calibration data is what would justify Kelly sizing in v1. If model_prob is well-calibrated (30% predictions win ~30%), Kelly is appropriate. If not, flat tiers are more honest.</div>
-        </div>
       </div>
     </div>
   </div>
@@ -611,6 +491,20 @@ section { margin-bottom: 8px }
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Backfill function: pull NWS CLI actual max and update outcome</div>
+              <div class="task-note">logger.py <code>backfill_outcome()</code> updates all <code>bracket_snapshots</code> rows for an <code>event_date</code> with <code>actual_max_f</code> and <code>outcome</code> (1 for the winning bracket, 0 for all others). Can be run manually (<code>python logger.py 2026-03-30</code>) or via cron. Without this, v0 evaluation is impossible -- no Brier score, no P&amp;L, no permutation test.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Add backfill to daily cron on VM</div>
+              <div class="task-note">Run once per day at 8am ET (after CLI is typically published):<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python logger.py</code><br><br>This backfills yesterday&apos;s <code>event_date</code> automatically. If CLI is not yet available, the script errors loudly and can be re-run manually. Also add a check: query for event_dates older than 2 days that still have <code>outcome</code>=NULL. These are missed backfills that need manual attention.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">SQLite log -- expanded schema for event dating + snapshot timing</div>
@@ -643,24 +537,24 @@ section { margin-bottom: 8px }
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Kalshi bracket yes-price snapshot every 30 minutes</div>
-              <div class="task-note">Separate SQLite table: timestamp (ISO 8601 UTC), bracket_label, bracket_lower_f, bracket_upper_f, yes_price, bid, ask (if available from API). No model computation in this table.</div>
+              <div class="task-text done">Kalshi bracket yes-price snapshot every 30 minutes</div>
+              <div class="task-note"><strong>Implemented (current schema):</strong> collector writes intraday snapshots into <code>bracket_snapshots</code> (same table as morning runs) with <code>snapshot_type=&quot;intraday&quot;</code>. Each row includes <code>event_date</code>, <code>snapshot_ts</code>, <code>bracket_label</code>, bounds, <code>market_price</code>, <code>market_bid</code>, <code>market_ask</code>.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Recompute model_prob from latest NBM percentile guidance every 60 minutes</div>
-              <div class="task-note">Separate SQLite table: timestamp (ISO 8601 UTC), nbm_p10/nbm_p50/nbm_p90 (raw), nbm_bias_applied, bracket_label, bracket_lower_f, bracket_upper_f, model_prob. Same build_zones() / bracket_prob() math; this is analysis-only data and does not change v0 evaluation gates.<br><br>Log <code>nbm_cycle</code> for each recomputation so the exact NBM run is traceable. As NBM updates hourly, a 7am snapshot uses ~06Z cycle while a 1pm snapshot uses ~12Z cycle. <code>forecast_lead_hours</code> decreases through the day for same-day event_date and stays high for next-day event_date.</div>
+              <div class="task-text done">Recompute model_prob from latest NBM percentile guidance every 60 minutes</div>
+              <div class="task-note"><strong>Implemented:</strong> each collector run pulls fresh NBM p10/p50/p90 for each open <code>event_date</code>, computes <code>model_prob</code> with the same <code>build_zones()</code> / <code>bracket_prob()</code> math, and logs it into <code>bracket_snapshots</code> alongside prices. <code>nbm_cycle</code> is logged for traceability. This is analysis-only and does not change v0 evaluation gates.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Capture next-day market alongside today's market</div>
-              <div class="task-note">If Kalshi has already opened tomorrow&apos;s temperature market, log those brackets too with event_date = tomorrow and forecast_lead_hours reflecting the longer lead time. Enables analysis of how edge differs at 7hr vs 31hr forecast horizons. Lower priority than same-day collection -- skip if it complicates the initial build.</div>
+              <div class="task-text done">Capture next-day market alongside today's market</div>
+              <div class="task-note"><strong>Implemented:</strong> collector enumerates all open <code>KXHIGHNY</code> markets and groups by <code>event_date</code> parsed from the ticker token (e.g. <code>26MAR30</code>). When tomorrow&apos;s market is open, it is captured automatically, with its own <code>forecast_lead_hours</code>.</div>
             </div>
           </div>
 
@@ -691,6 +585,22 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
+              <div class="task-text">Install and run Datasette on VM for data review</div>
+              <div class="task-note">pip install datasette on the VM. Run as a background process:<br><br><code>datasette nyc_temp_log.sqlite --host 0.0.0.0 --port 8001 &amp;</code><br><br>Or use a systemd service for persistence across reboots. Accessible at http://&lt;vm-ip&gt;:8001. Read-only -- does not interfere with collector writes. No authentication by default -- if the VM is internet-facing, add <code>--setting default_allow_sql false</code> or put behind a simple reverse proxy with basic auth.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Create canned queries metadata file for Datasette</div>
+              <div class="task-note">Create a <code>metadata.yml</code> file with saved SQL queries that appear as links in the Datasette UI. Starter queries: latest_morning_snapshot, edge_summary_by_date, missing_backfills, edge_by_bracket_position, intraday_edge_decay, flb_test. Run Datasette with:<br><br><code>datasette nyc_temp_log.sqlite --metadata metadata.yml</code></div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
               <div class="task-text">Git pull strategy for VM</div>
               <div class="task-note">The VM runs code from a git clone of the repo. When pushing fixes from the dev machine, SSH into the VM and run git pull before the next collection cycle. Do NOT set up automatic git pull -- you want to control when new code goes live on the collector. For v0, manual git pull after testing locally is the right workflow.</div>
             </div>
@@ -708,7 +618,7 @@ section { margin-bottom: 8px }
             <div class="task-check"></div>
             <div class="task-body">
               <div class="task-text">Verify cron is producing data after first 24 hours</div>
-              <div class="task-note">After deploying, wait 24 hours, then query the SQLite database:<br><br><code>SELECT event_date, COUNT(*) as snapshots,<br>       MIN(snapshot_ts) as first, MAX(snapshot_ts) as last<br>FROM price_snapshots<br>GROUP BY event_date;</code><br><br>Should show ~36 snapshots per event_date (every 30 min from 6am to midnight). If significantly fewer, check logs/collector.log for errors. Common issues: wrong Python path in wrapper, missing .env file on VM, NBM endpoint returning errors for certain hours.</div>
+              <div class="task-note">After deploying, wait 24 hours, then query the SQLite database:<br><br><code>SELECT event_date, COUNT(DISTINCT snapshot_ts) as snapshots,<br>       MIN(snapshot_ts) as first, MAX(snapshot_ts) as last<br>FROM bracket_snapshots<br>WHERE snapshot_type = 'intraday'<br>GROUP BY event_date;</code><br><br>Should show ~36 snapshots per event_date (every 30 min from 6am to midnight ET; depends on cron window). If significantly fewer, check logs/collector.log for errors. Common issues: wrong Python path in wrapper, missing Python deps on VM, NOMADS transient errors.</div>
             </div>
           </div>
         </div>
@@ -869,112 +779,55 @@ section { margin-bottom: 8px }
 <div class="acc-item">
   <input type="checkbox" id="acc-hypothesis" class="acc-toggle">
   <label class="acc-header" for="acc-hypothesis">
-    <span class="acc-title">Hypothesis</span>
+    <span class="acc-title">Hypotheses and success criteria</span>
     <span class="acc-icon">&#x203a;</span>
   </label>
   <div class="acc-body">
     <div class="acc-inner">
-      <div class="eyebrow">Working hypothesis -- direction unknown</div>
-      <div class="panel-title">What we are testing</div>
-      <div class="panel-lead">Hypothesis updated. Previous version assumed tails are underpriced. That assumption is now invalidated by real-world signal. v0 is direction-agnostic -- it measures mispricing across all brackets and lets the data determine direction.</div>
+      <div class="eyebrow">Direction unknown — data decides</div>
+      <div class="panel-title">Hypotheses and success criteria</div>
+      <div class="panel-lead">v0 is designed to answer a small number of questions clearly. We’re not trying to be clever; we’re trying to be right (or falsified) quickly.</div>
 
-      <div class="note amber"><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.</div>
+      <div class="sec">Hypotheses (what we think might be true)</div>
 
-      <div class="sec">Three questions -- in order</div>
+      <div class="note amber"><strong>H1 — Morning mispricing:</strong> Market probabilities across temperature brackets differ systematically from probabilities implied by NBM p10/p50/p90 guidance (direction unknown a priori).</div>
+
+      <div class="note purple"><strong>H2 — Intraday timing / edge decay:</strong> As the day evolves (new forecasts + realized temps), prices may move toward updated probabilities with a measurable lag. Intraday snapshots exist to measure whether edge decays (market catches up) and whether moves are driven by the model updating or the market repricing.</div>
 
       <div class="card">
-        <div class="clabel amber">Q1 -- Does mispricing exist at all?</div>
-        <div class="cbody"><strong>Test:</strong> Does model_prob minus market_price show a consistent directional pattern across brackets? Not noise -- a repeatable sign.<br><br><strong>How to answer:</strong> After 20-30 days, plot edge (model_prob minus market_price) for every bracket-day pair. Are middle brackets consistently positive or negative? Are tails? Is there a pattern at all?<br><br><strong>Status:</strong> Untested. This is the only question v0 needs to answer before anything else.</div>
+        <div class="clabel dim">Secondary tests (registered in advance)</div>
+        <div class="cbody"><strong>Favorite-longshot bias check:</strong> Partition observations by market price (cheap tails vs expensive middles) and measure average edge by bucket.<br><br><strong>Conditional strength:</strong> Evaluate whether mispricing is stronger under higher uncertainty (e.g., wider NBM spread) or near records.</div>
+      </div>
+
+      <div class="sec">Success criteria (what counts as “signal”)</div>
+
+      <div class="card">
+        <div class="clabel amber">1) Calibration is not obviously broken</div>
+        <div class="cbody">After outcomes are backfilled, basic calibration should be at least competitive with simple baselines (e.g., a naive normal distribution). If not, improve the probability conversion before making market claims.</div>
       </div>
 
       <div class="card">
-        <div class="clabel blue">Q2 -- What direction? (only after Q1 is yes)</div>
-        <div class="cbody"><strong>This is now the most important v0 output.</strong> Specifically:<br><br>Are middle brackets (near p50) systematically cheap or rich vs model?<br>Are tail brackets (far from p50) systematically cheap or rich?<br>Is there asymmetry between upper and lower tails?<br><br><strong>Do not answer this question before Q1.</strong> If there is no consistent pattern in Q1, direction analysis is noise.</div>
+        <div class="clabel blue">2) Mispricing is repeatable in direction</div>
+        <div class="cbody">Across a meaningful sample (e.g., ~20–30 days), edge patterns should be stable enough to describe: which parts of the distribution (middle vs tails) are systematically rich/cheap, and whether that persists day to day.</div>
       </div>
 
       <div class="card">
-        <div class="clabel dim">Q3 -- Is mispricing conditional? (secondary, after Q1 + Q2)</div>
-        <div class="cbody">Is the pattern stronger in certain setups -- high vs low spread (p90-p10), record proximity, large forecast shifts? These are secondary analyses, not core assumptions. Test only after Q1 and Q2 have answers. High uncertainty is a candidate modifier, not a requirement.</div>
+        <div class="clabel green">3) Any edge is economically meaningful after costs</div>
+        <div class="cbody">If paper P&amp;L (after spreads/fees assumptions) is indistinguishable from zero, treat v0 as a market-efficiency result — not a prompt to add complexity.</div>
       </div>
 
-      <div class="card">
-        <div class="clabel purple">Q4 -- INFORMATION TIMING (secondary, from market structure research)</div>
-        <div class="cbody">How quickly does the market incorporate new forecast and observational data? Research identifies five bot types reacting to DSM releases, 6-hourly max readings, ASOS one-minute data, and CLI reports within seconds. If Kalshi prices fully reflect the 06Z GFS ensemble by 7am, the morning model may be measuring noise rather than mispricing.<br><br><strong>Test from v0 data:</strong> using intraday price and model_prob snapshots from <code>collector.py</code>, decompose edge change into two components -- did model_prob move (NBM updated) or did market_price move (traders repriced)? If the market moves toward the 7am model_prob, that is evidence of real morning mispricing. If model_prob moves toward the morning market_price, the market was ahead of the model.<br><br><strong>Also measure:</strong> correlation between morning edge (7am model_prob minus market_price) and subsequent price movement direction. If morning edge predicts the direction prices move during the day, the market was slow to incorporate information the model captured.<br><br>This requires <code>collector.py</code> to be running. It does not affect v0 model logic or evaluation gates.</div>
-      </div>
-
-      <div class="sec">Three evaluation layers -- failure at each means something different</div>
-      <div class="note blue"><strong>Do not treat a v0 failure as a single "no edge" result.</strong> The evaluation has three distinct layers. Diagnosing which one broke determines the next step.</div>
-
-      <div class="card">
-        <div class="clabel amber">Layer 1 -- Is the probability model any good?</div>
-        <div class="cbody"><strong>Question:</strong> Does model_prob (from zone interpolation) accurately reflect the true probability of each outcome?<br><br><strong>Metric:</strong> Brier score. For each bracket-day pair, compute (model_prob - outcome)^2. Average across all logged rows. Compare against the naive normal distribution baseline using the same metric.<br><br><strong>Failure means:</strong> The probability conversion is broken -- ERA5 proxy is wrong, interpolation has a systematic flaw, or nbm_bias is badly estimated. Fix the model before testing mispricing.</div>
-      </div>
-      <div class="card">
-        <div class="clabel blue">Layer 2 -- Is the market mispriced relative to the model?</div>
-        <div class="cbody"><strong>Question:</strong> Is model_prob - market_price (edge) consistently non-zero in a repeatable direction?<br><br><strong>Metric:</strong> Mean edge and directional persistence. For each bracket position (tail vs middle, measured as distance from p50 in sigma units), compute mean edge across days. Also compute the fraction of days where edge has the same sign as the mean -- this is directional persistence.<br><br><strong>Failure means:</strong> The model may be well-calibrated but the market is also well-calibrated. No exploitable gap exists at the bracket level. Not a model failure -- a market efficiency finding.</div>
-      </div>
-      <div class="card">
-        <div class="clabel green">Layer 3 -- Is the gap economically tradable?</div>
-        <div class="cbody"><strong>Question:</strong> After fees, spreads, and execution friction, is hypothetical P&L positive?<br><br><strong>Metric:</strong> After-cost paper P&L across all paper-trade days. Model a realistic round-trip cost (entry spread + Kalshi fee) and subtract from gross edge. Compare against zero and against baseline 1 (NBM p50 bracket).<br><br><strong>Failure means:</strong> Edge exists but is too small to capture. This is a microstructure problem, not a model or market problem. Could still be salvageable if edge is concentrated in specific setups.</div>
-      </div>
-
-      <div class="sec">Predeclared evaluation metrics</div>
-      <div class="prose">These metrics are locked before v0 runs. They cannot be changed post-hoc to fit the data.</div>
-      <table class="t">
-        <thead><tr><th>What</th><th>Metric</th><th>Threshold</th><th>Status</th></tr></thead>
-        <tbody>
-          <tr><td>Model calibration</td><td>Brier score vs naive normal baseline</td><td>Must be lower (better) than naive normal</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
-          <tr><td>Directional persistence</td><td>Fraction of days where edge sign matches mean sign, per bracket position</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL -- 60% used as placeholder. Set from bootstrap before v0 ends.</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
-          <tr><td>Economic tradeability</td><td>After-cost paper P&L vs zero</td><td>Must be positive over full sample</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
-          <tr><td>Noise test</td><td>Permutation test on mean edge</td><td>p &lt; 0.10 (one-tailed) before v1 unlocks</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
-        </tbody>
-      </table>
-
-      <div class="sec">Noise test -- predeclared decision rule</div>
-      <div class="card">
-        <div class="clabel red">This must be specified before v0 ends, not after</div>
-        <div class="cbody"><strong>Method:</strong> Permutation test on mean edge. Shuffle the outcome labels (actual_max_f) across days, recompute mean edge for each bracket position 1000 times, and check where the observed mean edge falls in that null distribution.<br><br><strong>Decision rule:</strong> If observed mean edge falls above the 90th percentile of the permuted distribution (p &lt; 0.10, one-tailed), edge is unlikely to be noise. This threshold is intentionally lenient given the sample size -- it filters obvious noise, not marginal cases.<br><br><strong>Why permutation, not t-test:</strong> Edge values are not normally distributed and may be serially correlated across days. Permutation is distribution-free and more honest for this data structure.<br><br><strong style="color:var(--amber)">If this test is not pre-registered before v0 ends, the v0/v1 gate cannot be evaluated without post-hoc bias risk.</strong></div>
-      </div>
-
-      <div class="sec">Baselines -- with predeclared comparison metric</div>
-      <div class="note amber"><strong>Comparison metric for all baselines: after-cost paper P&L.</strong> A baseline "wins" if its hypothetical after-cost P&L over the v0 sample exceeds the model's. This is the single metric used for all comparisons -- no mixing of calibration metrics and P&L metrics across baselines.</div>
-
+      <div class="sec">Baselines (must compare against)</div>
       <div class="baseline">
-        <div class="bl-top"><span class="bl-name">1. NBM p50 bracket</span><span class="bl-status bl-must">MUST BEAT</span></div>
-        <div class="bl-desc">Bet the bracket containing the NBM 50th percentile every day at the prevailing market price. Primary economic baseline. If the model cannot beat this, bracket conversion adds nothing.</div>
+        <div class="bl-top"><span class="bl-name">NBM p50 bracket</span><span class="bl-status bl-must">MUST BEAT</span></div>
+        <div class="bl-desc">Bet the bracket containing the NBM 50th percentile each day.</div>
       </div>
       <div class="baseline">
-        <div class="bl-top"><span class="bl-name">2. Naive normal distribution</span><span class="bl-status bl-must">MUST BEAT</span></div>
-        <div class="bl-desc">Same interpolation logic but using scipy norm.fit() instead of asymmetric zones. Tests whether the tail-width fix earns its complexity. Also compared on Brier score, not just P&L.</div>
+        <div class="bl-top"><span class="bl-name">Naive normal distribution</span><span class="bl-status bl-must">MUST BEAT</span></div>
+        <div class="bl-desc">Use a normal distribution fit as a simpler probability model and compare outcomes.</div>
       </div>
       <div class="baseline">
-        <div class="bl-top"><span class="bl-name">3. Highest market-probability bracket</span><span class="bl-status bl-must">MUST BEAT</span></div>
-        <div class="bl-desc">Buy whichever bracket Kalshi prices highest each day. No model needed. Tests whether the model adds anything over betting the crowd favourite.</div>
-      </div>
-      <div class="baseline">
-        <div class="bl-top"><span class="bl-name">4. Simplification check (not an independent baseline)</span><span class="bl-status bl-tbd">DIAGNOSTIC</span></div>
-        <div class="bl-desc">Take only the bracket with the largest absolute edge each day. This is derived from the model itself so it is not an independent baseline -- it is a simplification check. If it matches full model P&L, no classification logic beyond "biggest gap" is adding value.</div>
-      </div>
-
-      <div class="sec">What v0 must NOT do</div>
-      <div class="note red"><strong>Do not build directional logic into v0.</strong> No bias toward tails. No bias toward middles. No flag for "positive edge only." Log all brackets, all edge values, positive and negative. The logging structure enables post-hoc analysis. The v0 model has no opinion on direction.</div>
-
-      <div class="sec">Intraday hypothesis (kept separate)</div>
-      <div class="note purple"><strong>Independent hypothesis:</strong> "As realized temperature reduces uncertainty during the day, market prices may lag updated probabilities when the observed path diverges from the morning forecast." Only test after morning mispricing is validated OR explicitly rejected. Not merged with v0.</div>
-
-      <div class="sec">Evidence log</div>
-      <div class="note blue"><strong>March 2026 -- weak prior only:</strong> A participant has reportedly made money buying high-probability middle brackets and fading tails. This is one anecdotal data point. It justifies removing the old directional assumption from v0 -- nothing more. It is not the new narrative center of the project. Treat as weak prior evidence until v0 data speaks.</div>
-
-      <div class="sec">Pre-registered sub-hypotheses (written before v0 data)</div>
-
-      <div class="card">
-        <div class="clabel dim">FLB TEST</div>
-        <div class="cbody">Favorite-longshot bias predicts that Kalshi weather tail brackets (market_price below 0.15) are systematically overpriced and middle brackets (market_price above 0.50) are systematically underpriced relative to true probabilities.<br><br><strong>Test:</strong> After 20-30 days of v0 data, partition all bracket-day pairs by market_price into two groups: above 0.50 and below 0.15. Compute mean edge (model_prob minus market_price) for each group. FLB predicts mean edge is negative for the cheap group and positive for the expensive group.<br><br>This is a secondary analysis. It does not affect v0 model logic, logging, or the three primary evaluation layers. Pre-registered 2026-03-29.<br><br><strong>Sources:</strong> Bürgi, Deng &amp; Whelan (2026) &ldquo;Makers and Takers&rdquo; CEPR DP 20631; anecdotal participant report (see Evidence Log above).</div>
-      </div>
-
-      <div class="card">
-        <div class="clabel dim">EDGE DECAY TEST</div>
-        <div class="cbody">If morning mispricing is real, edge should decay through the day as the market incorporates new information. If edge is model error, it should persist or reverse as the NBM updates toward what the market already knew.<br><br><strong>Test:</strong> Using hourly snapshots from <code>collector.py</code>, compute edge at each timestamp. Plot mean absolute edge vs time of day. If edge decays monotonically from 7am to 3pm, the morning model captures real information the market is slow to price. If edge is flat or increases, the model is not capturing actionable mispricing.<br><br><strong>Also decompose:</strong> on days where 7am edge was positive on a bracket, did model_prob decrease toward market_price (NBM corrected toward market) or did market_price increase toward model_prob (market corrected toward model)? The direction of convergence identifies whether the model or the market was 'right' on average.<br><br>Requires <code>collector.py</code> hourly model_prob snapshots. Pre-registered 2026-03-30.</div>
+        <div class="bl-top"><span class="bl-name">Highest market-probability bracket</span><span class="bl-status bl-must">MUST BEAT</span></div>
+        <div class="bl-desc">Buy whichever bracket the market prices as most likely.</div>
       </div>
     </div>
   </div>
@@ -992,6 +845,16 @@ section { margin-bottom: 8px }
       <div class="panel-lead">Most important decisions, categorised. Add new decisions at the top of each category with a date. Update before writing code.</div>
 
       <div class="sec">Methodology</div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Outcome backfill built as separate CLI entry point in logger.py</div></div>
+        <div class="dec-why">The original logger.py only writes snapshots -- it does not backfill actual outcomes. Without backfill, v0 produces 30 days of model_prob and market_price data with no way to evaluate accuracy. Backfill is implemented as a CLI entry point in logger.py that pulls the NWS CLI actual max for KNYC from Iowa State Mesonet and updates all bracket_snapshots rows for that event_date with actual_max_f and outcome. Supports manual override (--actual-max) if the automated pull fails. Added to VM cron at 8am ET daily. A missing-backfill check query should be run weekly to catch any gaps.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Datasette for live data review on VM</div></div>
+        <div class="dec-why">SQLite data is reviewed via Datasette running on the VM. Provides a browsable web UI with filtering, sorting, SQL editor, and CSV export. Canned queries for morning snapshot review, edge summaries, missing backfills, FLB test, and intraday edge decay are saved in metadata.yml. Read-only -- does not interfere with collector writes. Accessible to the team at http://&lt;vm-ip&gt;:8001. No code required to browse data.</div>
+      </div>
 
       <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — VM deployment uses plain crontab, not a process manager</div></div>
@@ -1208,6 +1071,13 @@ section { margin-bottom: 8px }
 
       <div class="sec">Operational risks</div>
       <div class="card">
+        <div class="risk">
+          <span class="rsev hi">H</span>
+          <div class="risk-body">
+            <div class="risk-t">Missing outcome backfill invalidates entire v0 data collection</div>
+            <div class="risk-m">Mitigation: Backfill function now built into logger.py with daily cron trigger at 8am ET. Manual override available if NWS pull fails. Weekly check query identifies event_dates with NULL outcomes older than 48 hours. Without outcomes, no v0 evaluation metric can be computed -- this is the single highest-priority operational risk.</div>
+          </div>
+        </div>
         <div class="risk">
           <span class="rsev md">M</span>
           <div class="risk-body">

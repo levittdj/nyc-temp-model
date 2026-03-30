@@ -20,7 +20,7 @@ Goal: evidence, not profit.
 
 ## Active task
 [UPDATE THIS AT THE END OF EVERY SESSION]
-Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: add collector.py (intraday data collection infra) + daily paper run + backfill workflow as needed.
+Phase 0 -- calibration.py + morning_model.py + logger.py + collector.py done. Next: daily paper run + outcome/backfill workflow as needed + VM cron wrapper/heartbeat for collector.
 
 ## Build order (v0 only)
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json
@@ -32,6 +32,7 @@ Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: add collect
 - NBM is the full forecast. No separate sky cover / wind / RH adjustments on top.
 - v0 logs everything, filters nothing, applies no thresholds.
 - Log both positive and negative edge. No directional bias in the code.
+- Outcome backfill (actual_max_f + outcome) is as critical as data collection. A day without a backfilled outcome is a wasted day. The backfill cron runs at 8am ET daily. If it fails, manually run `python logger.py YYYY-MM-DD` before the next morning model run.
 - Kalshi NHIGH brackets use strict inequality on tails and inclusive between brackets (confirmed from CFTC filing). The continuous model applies a half-degree continuity correction to make boundaries contiguous. model_prob must sum to 1.0 (enforced by assertion).
 - event_date is the calendar date whose high temperature the market settles on. snapshot_ts is when data was captured. These are different and must never be conflated. A 7am run on April 2nd logging April 2nd's market has event_date=2026-04-02 and forecast_lead_hours~7. The same run logging April 3rd's market has event_date=2026-04-03 and forecast_lead_hours~31.
 - v0 evaluation uses snapshot_type='morning' rows ONLY. Intraday snapshots are analysis context, not evaluation data.
@@ -58,6 +59,10 @@ records.json         -- all-time KNYC daily records (one-time build)
 - Database: data/tempmodel.db on the VM
 - Logs: logs/collector.log on the VM
 - Health check: logs/last_success heartbeat, checked every 2 hours
+- Datasette runs on port 8001 for team data review
+  http://<vm-ip>:8001
+- Canned queries in metadata.yml -- no SQL needed to review daily output
+- Read-only access to the live SQLite database
 - Code updates: manual git pull on VM after testing locally
 - Do not add morning_model.py to cron until 10+ days of stable manual runs
 
