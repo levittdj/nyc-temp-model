@@ -316,7 +316,7 @@ section { margin-bottom: 8px }
   </div>
   <div class="main">
 <div class="acc-item">
-  <input type="checkbox" id="acc-status" class="acc-toggle" checked>
+  <input type="checkbox" id="acc-status" class="acc-toggle">
   <label class="acc-header" for="acc-status">
     <span class="acc-title">Project Status</span>
     <span class="acc-icon">&#x203a;</span>
@@ -330,6 +330,8 @@ section { margin-bottom: 8px }
       <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
 
       <div class="note green"><strong>Progress (2026-03-30):</strong> v0 is operational end-to-end: we can generate model probabilities, capture market prices, log snapshots to SQLite, and backfill outcomes after settlement. The remaining work is operational discipline: run it daily, keep backfills current, and review results in Datasette.</div>
+
+      <div class="note blue"><strong>Quick links:</strong> <a href="#hypotheses" style="color:var(--blue2);text-decoration:none">Hypotheses and success criteria</a></div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
@@ -784,6 +786,7 @@ section { margin-bottom: 8px }
   </label>
   <div class="acc-body">
     <div class="acc-inner">
+      <a id="hypotheses"></a>
       <div class="eyebrow">Direction unknown — data decides</div>
       <div class="panel-title">Hypotheses and success criteria</div>
       <div class="panel-lead">v0 is designed to answer a small number of questions clearly. We’re not trying to be clever; we’re trying to be right (or falsified) quickly.</div>
