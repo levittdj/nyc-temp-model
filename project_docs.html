@@ -626,6 +626,31 @@ section { margin-bottom: 8px }
         </div>
       </div>
 
+      <div class="phase-block open" id="phase-collect">
+        <div class="phase-header" onclick="togglePhase('phase-collect')">
+          <span class="phase-num">COLLECT</span>
+          <span class="phase-name">collector.py (intraday data collection)</span>
+          <span class="badge badge-active">Active</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Kalshi bracket yes-price snapshot every 30 minutes</div>
+              <div class="task-note">Separate SQLite table: timestamp (ISO 8601 UTC), bracket_label, bracket_lower_f, bracket_upper_f, yes_price, bid, ask (if available from API). No model computation in this table.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Recompute model_prob from latest NBM percentile guidance every 60 minutes</div>
+              <div class="task-note">Separate SQLite table: timestamp (ISO 8601 UTC), nbm_p10/nbm_p50/nbm_p90 (raw), nbm_bias_applied, bracket_label, bracket_lower_f, bracket_upper_f, model_prob. Same build_zones() / bracket_prob() math; this is analysis-only data and does not change v0 evaluation gates.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="phase-block open" id="phase-paper">
         <div class="phase-header" onclick="togglePhase('phase-paper')">
           <span class="phase-num">RUN</span>
@@ -790,7 +815,7 @@ section { margin-bottom: 8px }
       <div class="panel-title">What we are testing</div>
       <div class="panel-lead">Hypothesis updated. Previous version assumed tails are underpriced. That assumption is now invalidated by real-world signal. v0 is direction-agnostic -- it measures mispricing across all brackets and lets the data determine direction.</div>
 
-      <div class="note amber"><strong>Core hypothesis (updated):</strong> "Kalshi NYC temperature markets may systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 guidance." Direction unknown. Magnitude unknown. Whether it exists at all: unknown.</div>
+      <div class="note amber"><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.</div>
 
       <div class="sec">Three questions -- in order</div>
 
@@ -807,6 +832,11 @@ section { margin-bottom: 8px }
       <div class="card">
         <div class="clabel dim">Q3 -- Is mispricing conditional? (secondary, after Q1 + Q2)</div>
         <div class="cbody">Is the pattern stronger in certain setups -- high vs low spread (p90-p10), record proximity, large forecast shifts? These are secondary analyses, not core assumptions. Test only after Q1 and Q2 have answers. High uncertainty is a candidate modifier, not a requirement.</div>
+      </div>
+
+      <div class="card">
+        <div class="clabel purple">Q4 -- INFORMATION TIMING (secondary, from market structure research)</div>
+        <div class="cbody">How quickly does the market incorporate new forecast and observational data? Research identifies five bot types reacting to DSM releases, 6-hourly max readings, ASOS one-minute data, and CLI reports within seconds. If Kalshi prices fully reflect the 06Z GFS ensemble by 7am, the morning model may be measuring noise rather than mispricing.<br><br><strong>Test from v0 data:</strong> using intraday price and model_prob snapshots from <code>collector.py</code>, decompose edge change into two components -- did model_prob move (NBM updated) or did market_price move (traders repriced)? If the market moves toward the 7am model_prob, that is evidence of real morning mispricing. If model_prob moves toward the morning market_price, the market was ahead of the model.<br><br><strong>Also measure:</strong> correlation between morning edge (7am model_prob minus market_price) and subsequent price movement direction. If morning edge predicts the direction prices move during the day, the market was slow to incorporate information the model captured.<br><br>This requires <code>collector.py</code> to be running. It does not affect v0 model logic or evaluation gates.</div>
       </div>
 
       <div class="sec">Three evaluation layers -- failure at each means something different</div>
@@ -872,10 +902,16 @@ section { margin-bottom: 8px }
       <div class="sec">Evidence log</div>
       <div class="note blue"><strong>March 2026 -- weak prior only:</strong> A participant has reportedly made money buying high-probability middle brackets and fading tails. This is one anecdotal data point. It justifies removing the old directional assumption from v0 -- nothing more. It is not the new narrative center of the project. Treat as weak prior evidence until v0 data speaks.</div>
 
-      <div class="sec">Pre-registered sub-hypothesis (FLB)</div>
+      <div class="sec">Pre-registered sub-hypotheses (written before v0 data)</div>
+
       <div class="card">
-        <div class="clabel dim">TEST AFTER V0 DATA COLLECTION</div>
-        <div class="cbody">Favorite-longshot bias predicts that Kalshi weather tail brackets (<code>market_price</code> below 0.15) are systematically overpriced and middle brackets (<code>market_price</code> above 0.50) are systematically underpriced relative to true probabilities.<br><br><strong>Test:</strong> After 20-30 days of v0 data, partition all bracket-day pairs by <code>market_price</code> into two groups: above 0.50 and below 0.15. Compute mean edge (<code>model_prob</code> minus <code>market_price</code>) for each group. FLB predicts mean edge is negative for the cheap group and positive for the expensive group.<br><br>This is a secondary analysis. It does not affect v0 model logic, logging, or the three primary evaluation layers. It was pre-registered on 2026-03-29 before any v0 data was collected.<br><br><strong>Sources:</strong> Bürgi, Deng &amp; Whelan (2026) &ldquo;Makers and Takers&rdquo; CEPR DP 20631; anecdotal participant report (see Evidence Log above).</div>
+        <div class="clabel dim">FLB TEST</div>
+        <div class="cbody">Favorite-longshot bias predicts that Kalshi weather tail brackets (market_price below 0.15) are systematically overpriced and middle brackets (market_price above 0.50) are systematically underpriced relative to true probabilities.<br><br><strong>Test:</strong> After 20-30 days of v0 data, partition all bracket-day pairs by market_price into two groups: above 0.50 and below 0.15. Compute mean edge (model_prob minus market_price) for each group. FLB predicts mean edge is negative for the cheap group and positive for the expensive group.<br><br>This is a secondary analysis. It does not affect v0 model logic, logging, or the three primary evaluation layers. Pre-registered 2026-03-29.<br><br><strong>Sources:</strong> Bürgi, Deng &amp; Whelan (2026) &ldquo;Makers and Takers&rdquo; CEPR DP 20631; anecdotal participant report (see Evidence Log above).</div>
+      </div>
+
+      <div class="card">
+        <div class="clabel dim">EDGE DECAY TEST</div>
+        <div class="cbody">If morning mispricing is real, edge should decay through the day as the market incorporates new information. If edge is model error, it should persist or reverse as the NBM updates toward what the market already knew.<br><br><strong>Test:</strong> Using hourly snapshots from <code>collector.py</code>, compute edge at each timestamp. Plot mean absolute edge vs time of day. If edge decays monotonically from 7am to 3pm, the morning model captures real information the market is slow to price. If edge is flat or increases, the model is not capturing actionable mispricing.<br><br><strong>Also decompose:</strong> on days where 7am edge was positive on a bracket, did model_prob decrease toward market_price (NBM corrected toward market) or did market_price increase toward model_prob (market corrected toward model)? The direction of convergence identifies whether the model or the market was 'right' on average.<br><br>Requires <code>collector.py</code> hourly model_prob snapshots. Pre-registered 2026-03-30.</div>
       </div>
     </div>
   </div>
@@ -895,8 +931,23 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
-        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">Pre-registered FLB sub-hypothesis for v0 analysis phase</div></div>
-        <div class="dec-why">Three independent signals suggest favorite-longshot bias may apply to Kalshi weather markets: (1) Bürgi et al. 2026 documents FLB across all Kalshi categories in 300,000+ contracts — cheap contracts win less often than price implies, expensive contracts win slightly more often. (2) Weak prior: participant reportedly profitable buying high-probability middles and fading tails. (3) Structural argument: retail traders overweight cheap lottery-ticket tail contracts, pushing tail prices above fair value.<br><br>Pre-registered sub-hypothesis (written before v0 data collection): After v0 paper trading, test whether brackets with <code>market_price</code> above 0.50 show positive mean edge (<code>model_prob</code> &gt; <code>market_price</code>) and brackets with <code>market_price</code> below 0.15 show negative mean edge (<code>model_prob</code> &lt; <code>market_price</code>). This is a secondary analysis run after the three primary evaluation layers. It does not change v0 logic, filtering, or logging. Direction remains an output of the data, not an input to the code.</div>
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Market structure research integrated into hypothesis framework</div></div>
+        <div class="dec-why">Research conducted 2026-03-30 identified: (1) Bürgi et al. (2026) documents favorite-longshot bias across 300k+ Kalshi contracts -- cheap contracts overpriced, expensive contracts yield small positive returns as maker. Bias is present across politics, entertainment, and economic categories. (2) At least five bot types actively trade Kalshi weather markets using real-time NWS data feeds (DSM bot, OMO bot, 6-hour bot, CLI bot, market-maker bot). (3) NWS forecasts carry persistent 1-2F warm bias that market prices anchor to. (4) Weather is approximately 1% of Kalshi volume (~$12-16M/month), meaning thin liquidity and wider spreads. (5) Open-source bots using GFS ensemble data from Open-Meteo with 8% edge threshold have been documented but reportedly stopped working as conditions changed. These findings strengthen the directional prior (FLB) but also raise the bar on information timing -- if bots already correct the bias by 7am, morning edge may not exist.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Pre-registered FLB sub-hypothesis for v0 analysis phase</div></div>
+        <div class="dec-why">Three independent signals suggest favorite-longshot bias may apply to Kalshi weather markets: (1) Bürgi et al. platform-wide finding, (2) anecdotal participant signal (middles profitable, tails not), (3) structural argument (retail overweights cheap lottery-ticket tails). Pre-registered test: after v0 data collection, partition brackets by market_price (above 0.50 vs below 0.15) and check whether mean edge is positive for expensive brackets and negative for cheap brackets. Secondary analysis only -- does not change v0 logic or evaluation gates.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Intraday price + model collector (collector.py) added to v0</div></div>
+        <div class="dec-why">Separate script runs on VM via cron. Captures Kalshi bracket yes-prices every 30 minutes, recomputes model_prob from fresh NBM percentiles every 60 minutes, and pulls KNYC METAR observations and HRRR max-T forecasts hourly. Writes to separate SQLite table(s). Does NOT replace the morning_model.py 7am run. Purpose: capture intraday information flow, measure edge decay, and determine how fast the market incorporates new data. V0 evaluation metrics (Brier, permutation test, paper P&amp;L) use the 7am morning run ONLY. Hourly snapshots are analysis data, not evaluation data.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Hourly model_prob recomputation added to collector</div></div>
+        <div class="dec-why">Since NBM updates hourly and collector.py already pulls Kalshi prices every 30 minutes, recomputing model_prob from fresh NBM p10/p50/p90 on the same cadence is trivial -- same build_zones() and bracket_prob() functions with new inputs. Hourly model_prob snapshots enable edge decay decomposition: did model_prob move toward market (model was wrong) or did market move toward model (market was slow)? This is the most valuable intraday dataset for interpreting v0 results.</div>
       </div>
 
       <div class="dec">

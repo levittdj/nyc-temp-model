@@ -5,11 +5,14 @@ A bracket-probability conversion engine for Kalshi NYC daily high temperature ma
 Testing a hypothesis -- not building a known-good system.
 
 ## Core hypothesis
-"Kalshi NYC temperature markets may systematically misallocate probability mass across
-brackets relative to probabilities implied by p10/p50/p90 NBM guidance."
-Direction unknown. Magnitude unknown. Whether it exists at all: unknown.
-Do not assume tails are underpriced. Do not assume middles are underpriced.
-The data answers the direction question.
+"Core hypothesis (updated 2026-03-30): Kalshi NYC temperature markets
+systematically misallocate probability mass across brackets relative to
+probabilities implied by p10/p50/p90 NBM guidance. Research suggests the
+most likely direction is favorite-longshot bias -- tail brackets overpriced,
+middle brackets underpriced -- consistent with the platform-wide pattern
+documented in Bürgi et al. (2026) and the anecdotal participant signal.
+However, weather markets may behave differently due to bot activity and
+ensemble model availability. Direction remains an output of v0 data."
 
 ## Current phase
 V0 -- hypothesis instrument. Three files. Paper trade. Manual review.
@@ -17,12 +20,13 @@ Goal: evidence, not profit.
 
 ## Active task
 [UPDATE THIS AT THE END OF EVERY SESSION]
-Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: daily paper run + backfill workflow as needed.
+Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: add collector.py (intraday data collection infra) + daily paper run + backfill workflow as needed.
 
 ## Build order (v0 only)
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json
 2. morning_model.py -- NBM p10/p50/p90 + Kalshi prices, zone interpolation, log edge per bracket
 3. logger.py       -- SQLite, 8 fields per bracket-day, manual terminal output
+4. collector.py    -- intraday snapshots (prices + model_prob); additive analysis infra only
 
 ## Key constraints -- do not violate
 - NBM is the full forecast. No separate sky cover / wind / RH adjustments on top.
@@ -30,7 +34,7 @@ Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: daily paper
 - Log both positive and negative edge. No directional bias in the code.
 - All numeric thresholds (3F record proximity, 20-day window, 60% persistence) are
   PROVISIONAL placeholders. Label them as such. Do not treat them as validated.
-- Do not build regime filter, intraday engine, or Telegram alerts in v0.
+- Do not build regime filter, intraday trading engine, or Telegram alerts in v0. (collector.py data collection is allowed.)
 
 ## v0 success gate (must pre-register before evaluating)
 Layer 1 -- Brier score better than naive normal distribution baseline
