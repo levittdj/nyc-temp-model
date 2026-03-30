@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NYC Temp Model -- Project Docs</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+
+
+
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0e14;--bg2:#0f1520;--bg3:#141c2e;
+  --border:#1e2d45;--border2:#243450;
+  --amber:#f0a500;--amber-dim:#3d2a00;
+  --blue:#3b82f6;--blue2:#60a5fa;--blue-dim:#0f2040;
+  --green:#22c55e;--green-dim:#052210;
+  --red:#ef4444;--red-dim:#200808;
+  --teal:#14b8a6;--teal-dim:#052220;
+  --purple:#a855f7;--purple-dim:#2d1060;
+  --text:#c8d8f0;--text2:#7a90b0;--text3:#3a5070;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'IBM Plex Sans',sans-serif;
+  --r:6px;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px);pointer-events:none;z-index:999}
+.shell{display:flex;flex-direction:column;min-height:100vh}
+
+/* topbar */
+.topbar{background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.topbar-title{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--amber);letter-spacing:.08em;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.phase-pill{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:20px;background:var(--amber-dim);border:1px solid var(--amber);color:var(--amber);flex-shrink:0;white-space:nowrap}
+
+/* tabs */
+.nav-wrap{background:var(--bg2);border-bottom:1px solid var(--border);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.nav-wrap::-webkit-scrollbar{display:none}
+.nav-tabs{display:flex;min-width:max-content;padding:0 8px}
+.tab{font-family:var(--mono);font-size:11px;padding:10px 14px;cursor:pointer;color:var(--text3);border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;letter-spacing:.04em}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--amber);border-bottom-color:var(--amber)}
+
+/* main */
+.main{flex:1;padding:20px 16px 48px}
+.panel{display:none;animation:fi .18s ease;max-width:680px}
+.panel.active{display:block}
+@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+/* type */
+.eyebrow{font-family:var(--mono);font-size:9px;letter-spacing:.15em;color:var(--text3);text-transform:uppercase;margin-bottom:5px}
+.panel-title{font-size:20px;font-weight:600;color:var(--text);margin-bottom:6px;line-height:1.2}
+.panel-lead{font-size:13px;color:var(--text2);line-height:1.65;margin-bottom:20px}
+.sec{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;margin:22px 0 9px}
+.prose{font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:10px}
+.prose strong{color:var(--text);font-weight:500}
+
+/* cards */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:8px}
+.card-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.clabel{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin-bottom:5px}
+.clabel.amber{color:var(--amber)}
+.clabel.blue{color:var(--blue2)}
+.clabel.green{color:var(--green)}
+.clabel.teal{color:var(--teal)}
+.clabel.red{color:var(--red)}
+.clabel.purple{color:var(--purple)}
+.clabel.dim{color:var(--text3)}
+.ctitle{font-size:13px;font-weight:500;color:var(--text);margin-bottom:3px}
+.cbody{font-size:12px;color:var(--text2);line-height:1.55}
+.cbody strong{color:var(--text);font-weight:500}
+
+/* notes */
+.note{border-radius:var(--r);padding:10px 13px;font-size:12px;color:var(--text2);line-height:1.6;margin:10px 0}
+.note strong{font-weight:500}
+.note.amber{background:var(--amber-dim);border-left:3px solid var(--amber)}
+.note.amber strong{color:var(--amber)}
+.note.blue{background:var(--blue-dim);border-left:3px solid var(--blue2)}
+.note.blue strong{color:var(--blue2)}
+.note.green{background:var(--green-dim);border-left:3px solid var(--green)}
+.note.green strong{color:var(--green)}
+.note.red{background:var(--red-dim);border-left:3px solid var(--red)}
+.note.red strong{color:var(--red)}
+.note.purple{background:var(--purple-dim);border-left:3px solid var(--purple)}
+.note.purple strong{color:var(--purple)}
+
+/* code */
+.code{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:11px 13px;font-family:var(--mono);font-size:11px;line-height:1.85;margin:8px 0;white-space:pre;overflow-x:auto;color:var(--amber)}
+
+/* table */
+.t{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0}
+.t th{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:7px 10px;text-align:left;border-bottom:1px solid var(--border)}
+.t td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top;line-height:1.5}
+.t tr:last-child td{border-bottom:none}
+.t td:first-child{font-family:var(--mono);font-size:10px;color:var(--text)}
+
+/* version banner */
+.ver-banner{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:var(--r);margin-bottom:12px;border:1px solid var(--border)}
+.ver-banner.v0{background:var(--amber-dim);border-color:var(--amber)}
+.ver-banner.v1{background:var(--blue-dim);border-color:var(--blue2)}
+.ver-banner.deferred{background:var(--bg3);border-color:var(--border2)}
+.ver-tag{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;flex-shrink:0}
+.ver-tag.v0{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
+.ver-tag.v1{background:var(--blue-dim);color:var(--blue2);border:1px solid var(--blue2)}
+.ver-tag.deferred{background:var(--bg3);color:var(--text3);border:1px solid var(--border2)}
+.ver-label{font-size:12px;color:var(--text2);flex:1;line-height:1.4}
+.ver-label strong{font-weight:500}
+
+/* evolution compare */
+.evo{display:flex;flex-direction:column;gap:2px;margin:8px 0}
+.evo-row{display:grid;grid-template-columns:110px 1fr 1fr;gap:1px}
+.evo-cell{padding:9px 11px;font-size:12px;line-height:1.5}
+.evo-label{background:var(--bg2);border-radius:var(--r) 0 0 var(--r);font-family:var(--mono);font-size:10px;color:var(--text3);display:flex;align-items:center}
+.evo-v0{background:var(--amber-dim);border:1px solid var(--amber);color:var(--text2)}
+.evo-v1{background:var(--blue-dim);border:1px solid var(--blue2);color:var(--text2);border-radius:0 var(--r) var(--r) 0}
+.evo-header{display:grid;grid-template-columns:110px 1fr 1fr;gap:1px;margin-bottom:2px}
+.evo-header-cell{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:5px 11px}
+.evo-header-cell.v0{color:var(--amber)}
+.evo-header-cell.v1{color:var(--blue2)}
+
+/* phase / task tracker */
+.phase-block{margin-bottom:4px}
+.phase-header{display:flex;align-items:center;gap:10px;padding:11px 13px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;user-select:none;-webkit-user-select:none}
+.phase-num{font-family:var(--mono);font-size:9px;color:var(--text3);min-width:44px;letter-spacing:.06em}
+.phase-name{font-size:13px;font-weight:500;color:var(--text);flex:1}
+.badge{font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:20px}
+.badge-active{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
+.badge-v1{background:var(--blue-dim);color:var(--blue2);border:1px solid var(--blue2)}
+.badge-pending{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.badge-done{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
+.chev{font-family:var(--mono);font-size:11px;color:var(--text3);transition:transform .2s;flex-shrink:0}
+.phase-block.open .chev{transform:rotate(90deg)}
+.phase-tasks{display:none;padding:4px 0}
+.phase-block.open .phase-tasks{display:block}
+.task{display:flex;align-items:flex-start;gap:10px;padding:8px 13px;border-bottom:1px solid var(--border);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.task:last-child{border-bottom:none}
+.task-check{width:17px;height:17px;border:1px solid var(--border2);border-radius:3px;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.task-check.done{background:var(--green);border-color:var(--green)}
+.task-check.done::after{content:'';width:9px;height:6px;border-left:2px solid var(--bg);border-bottom:2px solid var(--bg);transform:rotate(-45deg) translate(1px,-1px);display:block}
+.task-body{flex:1}
+.task-text{font-size:12px;color:var(--text2);line-height:1.5}
+.task-text.done{color:var(--text3);text-decoration:line-through}
+.task-note{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px;line-height:1.4}
+
+/* baseline compare */
+.baseline{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:6px;padding:11px 13px}
+.bl-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.bl-name{font-size:12px;font-weight:500;color:var(--text)}
+.bl-status{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px}
+.bl-must{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
+.bl-good{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
+.bl-tbd{background:var(--bg3);color:var(--text3);border:1px solid var(--border2)}
+.bl-desc{font-size:11px;color:var(--text3);line-height:1.5}
+
+/* decisions */
+.dec{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:11px 13px;margin-bottom:6px}
+.dec-top{display:flex;align-items:flex-start;gap:8px;margin-bottom:5px}
+.dtag{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;flex-shrink:0;margin-top:1px}
+.dtag.cut{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
+.dtag.keep{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
+.dtag.add{background:var(--blue-dim);color:var(--blue2);border:1px solid var(--blue2)}
+.dtag.mod{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
+.dtag.defer{background:var(--purple-dim);color:var(--purple);border:1px solid var(--purple)}
+.dec-what{font-size:12px;font-weight:500;color:var(--text);line-height:1.4}
+.dec-why{font-size:11px;color:var(--text2);line-height:1.55;margin-top:4px}
+.dec-old{font-family:var(--mono);font-size:10px;color:var(--red);margin-top:3px}
+.dec-new{font-family:var(--mono);font-size:10px;color:var(--green);margin-top:2px}
+
+/* open questions */
+.oq{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px}
+.oq:last-child{border-bottom:none}
+.oq-p{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:3px;flex-shrink:0;margin-top:1px}
+.oq-p.h{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
+.oq-p.m{background:var(--blue-dim);color:var(--blue2);border:1px solid var(--blue2)}
+.oq-p.l{background:var(--bg3);color:var(--text3);border:1px solid var(--border2)}
+.oq-p.r{background:var(--green-dim);color:var(--green);border:1px solid var(--green)}
+.oq-q{color:var(--text);margin-bottom:2px;line-height:1.5}
+.oq-ctx{font-size:11px;color:var(--text3)}
+
+/* risk */
+.risk{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px}
+.risk:last-child{border-bottom:none}
+.rsev{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:3px;flex-shrink:0;margin-top:1px}
+.rsev.hi{background:var(--red-dim);color:var(--red);border:1px solid var(--red)}
+.rsev.md{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber)}
+.rsev.lo{background:var(--bg3);color:var(--text3);border:1px solid var(--border2)}
+.risk-body{}
+.risk-t{color:var(--text);margin-bottom:2px;line-height:1.4}
+.risk-m{font-size:11px;color:var(--text3)}
+
+@media(max-width:420px){
+  .card-row{grid-template-columns:1fr}
+  .evo-row,.evo-header{grid-template-columns:80px 1fr 1fr}
+}
+
+
+/* CSS-only tab switching -- no JavaScript needed */
+input[type="radio"][name="tabs"] { display: none; }
+.panel { display: none; }
+#tab-status:checked ~ .main #panel-status { display: block; }
+#tab-evolution:checked ~ .main #panel-evolution { display: block; }
+#tab-build:checked ~ .main #panel-build { display: block; }
+#tab-hypothesis:checked ~ .main #panel-hypothesis { display: block; }
+#tab-decisions:checked ~ .main #panel-decisions { display: block; }
+#tab-questions:checked ~ .main #panel-questions { display: block; }
+#tab-risk:checked ~ .main #panel-risk { display: block; }
+#tab-status:checked ~ .nav-wrap label[for="tab-status"] { color: var(--amber); border-bottom-color: var(--amber); }
+#tab-evolution:checked ~ .nav-wrap label[for="tab-evolution"] { color: var(--amber); border-bottom-color: var(--amber); }
+#tab-build:checked ~ .nav-wrap label[for="tab-build"] { color: var(--amber); border-bottom-color: var(--amber); }
+#tab-hypothesis:checked ~ .nav-wrap label[for="tab-hypothesis"] { color: var(--amber); border-bottom-color: var(--amber); }
+#tab-decisions:checked ~ .nav-wrap label[for="tab-decisions"] { color: var(--amber); border-bottom-color: var(--amber); }
+#tab-questions:checked ~ .nav-wrap label[for="tab-questions"] { color: var(--amber); border-bottom-color: var(--amber); }
+#tab-risk:checked ~ .nav-wrap label[for="tab-risk"] { color: var(--amber); border-bottom-color: var(--amber); }
+
+
+/* Single-scroll layout -- no tabs, no JS needed */
+html { scroll-behavior: smooth }
+.shell { display: flex; flex-direction: column; min-height: 100vh }
+
+/* Sticky top bar with TOC */
+.topbar { position: sticky; top: 0; z-index: 200 }
+.toc { background: var(--bg2); border-bottom: 2px solid var(--amber); overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; white-space: nowrap; padding: 0 12px }
+.toc::-webkit-scrollbar { display: none }
+.toc-item { display: inline-block; font-family: var(--mono); font-size: 11px; color: var(--text3); padding: 9px 12px; text-decoration: none; letter-spacing: .04em; border-bottom: 2px solid transparent; margin-bottom: -2px }
+.toc-item:hover { color: var(--amber) }
+
+/* Sections */
+.sec-header { position: sticky; top: 90px; z-index: 100; background: var(--bg); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 0 -16px; padding: 0 16px }
+.sec-header-inner { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 }
+.sec-title { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--amber); letter-spacing: .1em; text-transform: uppercase }
+.sec-back { font-family: var(--mono); font-size: 10px; color: var(--text3); text-decoration: none; padding: 3px 8px; border: 1px solid var(--border2); border-radius: 3px }
+.sec-back:hover { color: var(--amber) }
+.sec-body { padding: 16px 0 40px }
+
+/* All panels visible, remove old display:none rules */
+.panel { display: block; animation: none }
+input[type="radio"] { display: none }
+
+.main { padding: 0 16px 48px }
+section { margin-bottom: 8px }
+
+/* Nav-wrap not used in scroll mode */
+.nav-wrap { display: none }
+
+
+/* Accordion layout */
+.shell { display: flex; flex-direction: column; min-height: 100vh }
+.topbar { position: sticky; top: 0; z-index: 200 }
+.main { padding: 12px 16px 60px }
+.panel { display: block; animation: none }
+.nav-wrap { display: none }
+
+/* Accordion items */
+.acc-item { margin-bottom: 4px }
+.acc-toggle { display: none }
+.acc-header {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 13px 14px;
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+}
+.acc-header:active { background: var(--bg3) }
+.acc-title {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--amber); letter-spacing: .1em; text-transform: uppercase; flex: 1
+}
+.acc-icon {
+  font-family: var(--mono); font-size: 16px; color: var(--text3);
+  transition: transform 0.2s; display: inline-block; flex-shrink: 0; line-height: 1
+}
+.acc-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease }
+.acc-inner { padding: 4px 0 8px }
+.acc-toggle:checked ~ .acc-header .acc-icon { transform: rotate(90deg) }
+.acc-toggle:checked ~ .acc-body { max-height: 99999px }
+
+.shell { display: flex; flex-direction: column; min-height: 100vh }
+.topbar { position: sticky; top: 0; z-index: 200 }
+.main { padding: 12px 16px 60px }
+.panel { display: block; animation: none }
+.nav-wrap { display: none }
+.acc-item { margin-bottom: 4px }
+.acc-toggle { display: none }
+.acc-header {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 13px 14px;
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+}
+.acc-header:active { background: var(--bg3) }
+.acc-title {
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--amber); letter-spacing: .1em; text-transform: uppercase; flex: 1
+}
+.acc-icon {
+  font-size: 18px; color: var(--text3); line-height: 1;
+  transition: transform 0.2s; flex-shrink: 0
+}
+.acc-body { max-height: 0; overflow: hidden; transition: max-height 0.3s ease }
+.acc-inner { padding: 4px 0 8px }
+.acc-toggle:checked ~ .acc-header .acc-icon { transform: rotate(90deg) }
+.acc-toggle:checked ~ .acc-body { max-height: 99999px }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px">
+      <div class="dot"></div>
+      <div class="topbar-title">NYC TEMP MODEL -- PROJECT DOCS</div>
+      <div class="phase-pill">V0 -- BUILD NOW</div>
+    </div>
+  </div>
+  <div class="main">
+<div class="acc-item">
+  <input type="checkbox" id="acc-status" class="acc-toggle" checked>
+  <label class="acc-header" for="acc-status">
+    <span class="acc-title">Project Status</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">Single source of truth</div>
+      <div class="panel-title">Project status</div>
+      <div class="panel-lead">Update this doc before changing code. If the spec and the code disagree, the spec is wrong -- fix the spec first, then the code.</div>
+
+      <div class="note amber"><strong>Current priority: falsify the hypothesis as fast as possible.</strong> Build v0 -- the minimum instrument to determine whether mispricing exists, what direction it takes, and how stable it is. We do not assume tails are underpriced. We do not assume any direction. The data answers those questions.</div>
+
+      <div class="sec">What we are building right now</div>
+      <div class="ver-banner v0">
+        <span class="ver-tag v0">V0</span>
+        <div class="ver-label"><strong>Hypothesis instrument.</strong> Three files. Morning model only. Paper trade. Manual review. Goal: evidence, not profit.</div>
+      </div>
+
+      <div class="sec">What comes next if v0 shows signal</div>
+      <div class="ver-banner v1">
+        <span class="ver-tag v1">V1</span>
+        <div class="ver-label"><strong>Automated betting system.</strong> Regime filter, intraday engine, Telegram alerts, live bets. Only built if v0 data justifies it.</div>
+      </div>
+
+      <div class="sec">File status</div>
+      <table class="t">
+        <thead><tr><th>File</th><th>Version</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>calibration.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- build first</td></tr>
+          <tr><td>morning_model.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- core v0</td></tr>
+          <tr><td>logger.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- 4 fields only</td></tr>
+          <tr><td>regime.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- tune from v0 data</td></tr>
+          <tr><td>intraday_engine.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- separate hypothesis</td></tr>
+          <tr><td>alerts.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- not needed for evidence</td></tr>
+          <tr><td>main.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- manual review at v0</td></tr>
+        </tbody>
+      </table>
+
+      <div class="sec">How to use this doc</div>
+      <div class="cbody" style="font-size:13px;color:var(--text2);line-height:1.7">
+        <strong style="color:var(--text)">Before every Claude session:</strong> open Build tab, find current task, paste the relevant spec section with the file you want to build.<br><br>
+        <strong style="color:var(--text)">When a design decision is made:</strong> add it to Decisions tab before writing code. Date it.<br><br>
+        <strong style="color:var(--text)">When v0 data comes in:</strong> update Hypothesis tab. That data determines whether v1 gets built.
+      </div>
+    </div>
+  </div>
+</div>
+<div class="acc-item">
+  <input type="checkbox" id="acc-evolution" class="acc-toggle">
+  <label class="acc-header" for="acc-evolution">
+    <span class="acc-title">v0 vs v1</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">System evolution</div>
+      <div class="panel-title">v0 vs v1</div>
+      <div class="panel-lead">v0 is the minimum instrument to falsify the core hypothesis. v1 is a production betting system. v1 only gets built if v0 shows evidence. Intraday is in v1 because it is a separate, high-conviction hypothesis -- not because it is unimportant.</div>
+
+      <div class="sec">The gate between them</div>
+      <div class="card">
+        <div class="clabel amber">v0 to v1 unlock criteria</div>
+        <div class="cbody">After 20-30 days of v0 paper trading:<br><br>
+        <strong>1. Repeatable gap.</strong> model_prob differs from market_price in a consistent direction across at least 60% of flagged brackets.<br><br>
+        <strong>2. Beats all baselines.</strong> Hypothetical P&amp;L using model_prob beats NBM p50 only, naive normal distribution, and no-model single-best-bracket bets.<br><br>
+        <strong>3. Not noise.</strong> Results are not indistinguishable from random variation given the sample size.<br><br>
+        If all three hold, build v1. If any fail, diagnose before adding complexity.</div>
+      </div>
+
+      <div class="sec">Component evolution</div>
+      <div class="evo">
+        <div class="evo-header">
+          <div></div>
+          <div class="evo-header-cell v0">V0 -- build now</div>
+          <div class="evo-header-cell v1">V1 -- if signal confirmed</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Goal</div>
+          <div class="evo-cell evo-v0">Falsify hypothesis. Collect evidence.</div>
+          <div class="evo-cell evo-v1">Automated betting system.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Files</div>
+          <div class="evo-cell evo-v0">3 files. calibration, morning_model, logger.</div>
+          <div class="evo-cell evo-v1">Add regime, intraday, alerts, main.py.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Probability model</div>
+          <div class="evo-cell evo-v0">Zone interpolation. p10/p50/p90 + nbm_bias. No other adjustments.</div>
+          <div class="evo-cell evo-v1">Same model. Thresholds tuned from v0 data, not guessed.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Regime filter</div>
+          <div class="evo-cell evo-v0">Not present. Log regime inputs (spread, wind, sky) for analysis only.</div>
+          <div class="evo-cell evo-v1">Add filter. Use v0 data to set real thresholds, not hand-tuned.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Intraday</div>
+          <div class="evo-cell evo-v0">Not present. Morning model only.</div>
+          <div class="evo-cell evo-v1">Add intraday engine. High-conviction hypothesis. Validated independently from morning model.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Sizing</div>
+          <div class="evo-cell evo-v0">Not applicable. Paper trades only.</div>
+          <div class="evo-cell evo-v1">Flat tiers (0.5 / 1.5 / 2.5u). Start at 50% for first 10 live days.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Alerts</div>
+          <div class="evo-cell evo-v0">None. Check output manually each morning.</div>
+          <div class="evo-cell evo-v1">Telegram bot. 3 windows: 7am, intraday conditional, 6pm outcome.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Logging</div>
+          <div class="evo-cell evo-v0">4 fields: model_prob, market_price, edge, outcome.</div>
+          <div class="evo-cell evo-v1">21 fields. Regime components, trajectory delta, entry/exit prices, would_have_won flag.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Deployment</div>
+          <div class="evo-cell evo-v0">Run locally. Manual trigger. No scheduler needed.</div>
+          <div class="evo-cell evo-v1">Railway.app. Schedule library. Always-on.</div>
+        </div>
+        <div class="evo-row">
+          <div class="evo-cell evo-label">Thresholds</div>
+          <div class="evo-cell evo-v0">None. Log everything, flag nothing automatically.</div>
+          <div class="evo-cell evo-v1">Set from v0 data. Edge cutoffs, skip criteria, trajectory delta calibrated empirically.</div>
+        </div>
+      </div>
+
+      <div class="sec">Why intraday is v1, not cut</div>
+      <div class="note purple"><strong>Intraday is a separate hypothesis:</strong> the market lags observed temperature data in the 12pm-2pm window because retail bettors anchor to the morning forecast and check back infrequently. This is distinct from the morning mispricing hypothesis and could hold even if the morning model has no edge. It stays in v1 because it requires the morning model infrastructure to exist first, and because validating it independently needs live prices -- not paper trades. High conviction means build it in v1, not v0.</div>
+
+      <div class="sec">What v0 data tells us about v1</div>
+      <div class="card-row">
+        <div class="card">
+          <div class="clabel amber">Regime thresholds</div>
+          <div class="cbody">v0 logs spread, wind sector, sky cover every day but applies no filter. After 30 days: plot model error vs spread. The data tells you where the hard skip threshold should actually be -- not 16F because it sounded reasonable.</div>
+        </div>
+        <div class="card">
+          <div class="clabel blue">Edge cutoffs</div>
+          <div class="cbody">v0 logs all edge values, not just those above 0.12. After 30 days: at what edge level did bets actually win? That number sets the v1 signal threshold. Right now 0.12 is a guess.</div>
+        </div>
+        <div class="card">
+          <div class="clabel purple">Intraday setup</div>
+          <div class="cbody">v0 also logs overnight low (for path baseline). After 30 days: on days where morning model showed edge, how much additional edge did intraday offer vs just holding? Quantifies the intraday opportunity.</div>
+        </div>
+        <div class="card">
+          <div class="clabel green">Kelly viability</div>
+          <div class="cbody">v0 calibration data is what would justify Kelly sizing in v1. If model_prob is well-calibrated (30% predictions win ~30%), Kelly is appropriate. If not, flat tiers are more honest.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="acc-item">
+  <input type="checkbox" id="acc-build" class="acc-toggle">
+  <label class="acc-header" for="acc-build">
+    <span class="acc-title">Build Tracker</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">Build tracker</div>
+      <div class="panel-title">Tasks</div>
+      <div class="panel-lead">V0 tasks first. V1 tasks are visible but locked until the v0 gate passes. Tap a task to mark it done.</div>
+
+      <div class="note amber"><strong>V0 build philosophy:</strong> fastest possible instrument to falsify the hypothesis. If a task is not strictly necessary to answer "is there a repeatable gap?", it belongs in v1.</div>
+
+      <div class="sec">V0 -- hypothesis instrument</div>
+
+      <div class="phase-block open" id="phase-cal">
+        <div class="phase-header" onclick="togglePhase('phase-cal')">
+          <span class="phase-num">CAL</span>
+          <span class="phase-name">calibration.py</span>
+          <span class="badge badge-active">Active</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Pull 3yr KNYC ASOS daily obs from Iowa State Mesonet</div>
+              <div class="task-note">mesonet.agron.iastate.edu/request/asos -- free, no key</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Pull ERA5 reanalysis as NBM proxy for same period</div>
+              <div class="task-note">Resolved: mean bias ~0.20°F vs ASOS — adequate for v0 (see Open Questions).</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">OLS regression: residuals = ASOS obs minus NBM p50</div>
+              <div class="task-note">Outputs nbm_bias only. ne_shift deferred to v1.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Verify nbm_bias is below 3F. Write to config.json.</div>
+              <div class="task-note">Gate: if outside range, investigate data quality first</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Build all-time daily record table for KNYC (365 values)</div>
+              <div class="task-note">From NWS CLI archive. Write to records.json. One-time.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-block" id="phase-model">
+        <div class="phase-header" onclick="togglePhase('phase-model')">
+          <span class="phase-num">MODEL</span>
+          <span class="phase-name">morning_model.py</span>
+          <span class="badge badge-pending">Pending</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">NBM p10/p50/p90 pull for KNYC</div>
+              <div class="task-note">No API key needed. Also pull wind_dir, sky_cover, overnight_low for logging -- not for filtering.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Kalshi bracket yes-price pull</div>
+              <div class="task-note">Requires Kalshi API key in .env. Parse bracket boundaries to numeric L and U.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">build_zones() -- asymmetric tail interpolation</div>
+              <div class="task-note">Apply nbm_bias before building. Right tail = p90-p50. Left tail = p50-p10.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">bracket_prob() -- compute model_prob per bracket</div>
+              <div class="task-note">Integrate zone mass over each Kalshi bracket boundary range.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Compute edge = model_prob minus market_price per bracket</div>
+              <div class="task-note">No threshold applied. Log all brackets, all edges, positive and negative.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Record proximity flag (p90 within 3F of daily record)</div>
+              <div class="task-note">PROVISIONAL -- 3F threshold is a starting estimate. Logged as a field. Not acted on in v0.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Test with hardcoded fake NBM inputs before live API calls</div>
+              <div class="task-note">Gate: correct output on 3 synthetic test cases before proceeding</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-block" id="phase-log">
+        <div class="phase-header" onclick="togglePhase('phase-log')">
+          <span class="phase-num">LOG</span>
+          <span class="phase-name">logger.py</span>
+          <span class="badge badge-pending">Pending</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">SQLite log -- 8 fields per day per bracket</div>
+              <div class="task-note">date, bracket_label, model_prob, market_price, edge, actual_max_f, outcome, record_prox_flag -- plus regime inputs (spread, wind_dir, sky_cover) for v1 threshold analysis</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">NWS CLI pull at 6am -- verified actual max</div>
+              <div class="task-note">Updates previous day's rows with actual_max_f and outcome (Win/Loss)</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Simple daily print to terminal (no Telegram yet)</div>
+              <div class="task-note">Print model_prob vs market_price vs outcome for each bracket. Review manually each morning.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-block" id="phase-paper">
+        <div class="phase-header" onclick="togglePhase('phase-paper')">
+          <span class="phase-num">RUN</span>
+          <span class="phase-name">Paper trade + evidence collection</span>
+          <span class="badge badge-pending">Pending</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Run morning_model.py manually each day at 7am for 20-30 days</div>
+              <div class="task-note">Paper trades: record what you would have bet at the morning price</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">After 20 days: plot model_prob vs market_price. Is the gap repeatable?</div>
+              <div class="task-note">PROVISIONAL window -- 20 days chosen as minimum viable sample for direction signal. Extend if pattern is unclear.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Run all five baseline comparisons. Does the model beat them?</div>
+              <div class="task-note">See Hypothesis tab for baseline definitions</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">V0 gate decision: evaluate all three layers before deciding</div>
+              <div class="task-note">Layer 1 (model calibration) -- Layer 2 (market mispricing) -- Layer 3 (economic tradeability). Diagnose which layer failed before concluding "no edge." See Hypothesis tab for predeclared metrics and noise test.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">V1 -- if v0 shows signal</div>
+      <div class="note blue"><strong>These tasks are locked until the v0 gate passes.</strong> Thresholds in v1 (regime weights, edge cutoffs, intraday delta) will be set from v0 data, not hand-tuned. Building them before that data exists produces a system with arbitrary parameters.</div>
+
+      <div class="phase-block" id="phase-regime">
+        <div class="phase-header" onclick="togglePhase('phase-regime')">
+          <span class="phase-num">V1-A</span>
+          <span class="phase-name">regime.py</span>
+          <span class="badge badge-v1">V1</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Analyse v0 data: does model error correlate with NBM spread?</div>
+              <div class="task-note">This sets the real skip threshold. Not 16F -- whatever the data shows.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Analyse v0 data: does NE/E wind predict model error specifically?</div>
+              <div class="task-note">Validates the marine intrusion effect at KNYC empirically</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Build regime scorer with empirically derived weights and thresholds</div>
+              <div class="task-note">Weighted: spread dominant. Wind and sky as modifiers. Hard skip threshold from data.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-block" id="phase-intra">
+        <div class="phase-header" onclick="togglePhase('phase-intra')">
+          <span class="phase-num">V1-B</span>
+          <span class="phase-name">intraday_engine.py</span>
+          <span class="badge badge-v1">V1</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Sinusoidal expected temperature path (peak at 14:00 LST)</div>
+              <div class="task-note">Baseline: nbm p50 adj + overnight low. Trajectory delta = obs minus expected.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Set trajectory delta threshold from v0 data, not hand-tuned</div>
+              <div class="task-note">v0 logs overnight low daily. Analyse: at what delta did intraday bets actually win?</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Entry gate: live edge above threshold at current price</div>
+              <div class="task-note">Never use morning price. Threshold from v0 edge distribution analysis.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Hard exit rules (edge flip, salvage, hold to expiry)</div>
+              <div class="task-note">No new entries after 15:00 LST regardless</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-block" id="phase-auto">
+        <div class="phase-header" onclick="togglePhase('phase-auto')">
+          <span class="phase-num">V1-C</span>
+          <span class="phase-name">alerts.py + main.py + Railway</span>
+          <span class="badge badge-v1">V1</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Telegram bot setup. Three message templates.</div>
+              <div class="task-note">7am go/no-go, intraday conditional on delta threshold, 6pm outcome log</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">main.py with schedule library. Three daily jobs.</div>
+              <div class="task-note">Morning 7am, intraday hourly gated 9-15, outcome 6pm</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Deploy to Railway.app. Paper trade for 5 days before live.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Go live at 50% tier sizes for first 10 days</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="acc-item">
+  <input type="checkbox" id="acc-hypothesis" class="acc-toggle">
+  <label class="acc-header" for="acc-hypothesis">
+    <span class="acc-title">Hypothesis</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">Working hypothesis -- direction unknown</div>
+      <div class="panel-title">What we are testing</div>
+      <div class="panel-lead">Hypothesis updated. Previous version assumed tails are underpriced. That assumption is now invalidated by real-world signal. v0 is direction-agnostic -- it measures mispricing across all brackets and lets the data determine direction.</div>
+
+      <div class="note amber"><strong>Core hypothesis (updated):</strong> "Kalshi NYC temperature markets may systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 guidance." Direction unknown. Magnitude unknown. Whether it exists at all: unknown.</div>
+
+      <div class="sec">Three questions -- in order</div>
+
+      <div class="card">
+        <div class="clabel amber">Q1 -- Does mispricing exist at all?</div>
+        <div class="cbody"><strong>Test:</strong> Does model_prob minus market_price show a consistent directional pattern across brackets? Not noise -- a repeatable sign.<br><br><strong>How to answer:</strong> After 20-30 days, plot edge (model_prob minus market_price) for every bracket-day pair. Are middle brackets consistently positive or negative? Are tails? Is there a pattern at all?<br><br><strong>Status:</strong> Untested. This is the only question v0 needs to answer before anything else.</div>
+      </div>
+
+      <div class="card">
+        <div class="clabel blue">Q2 -- What direction? (only after Q1 is yes)</div>
+        <div class="cbody"><strong>This is now the most important v0 output.</strong> Specifically:<br><br>Are middle brackets (near p50) systematically cheap or rich vs model?<br>Are tail brackets (far from p50) systematically cheap or rich?<br>Is there asymmetry between upper and lower tails?<br><br><strong>Do not answer this question before Q1.</strong> If there is no consistent pattern in Q1, direction analysis is noise.</div>
+      </div>
+
+      <div class="card">
+        <div class="clabel dim">Q3 -- Is mispricing conditional? (secondary, after Q1 + Q2)</div>
+        <div class="cbody">Is the pattern stronger in certain setups -- high vs low spread (p90-p10), record proximity, large forecast shifts? These are secondary analyses, not core assumptions. Test only after Q1 and Q2 have answers. High uncertainty is a candidate modifier, not a requirement.</div>
+      </div>
+
+      <div class="sec">Three evaluation layers -- failure at each means something different</div>
+      <div class="note blue"><strong>Do not treat a v0 failure as a single "no edge" result.</strong> The evaluation has three distinct layers. Diagnosing which one broke determines the next step.</div>
+
+      <div class="card">
+        <div class="clabel amber">Layer 1 -- Is the probability model any good?</div>
+        <div class="cbody"><strong>Question:</strong> Does model_prob (from zone interpolation) accurately reflect the true probability of each outcome?<br><br><strong>Metric:</strong> Brier score. For each bracket-day pair, compute (model_prob - outcome)^2. Average across all logged rows. Compare against the naive normal distribution baseline using the same metric.<br><br><strong>Failure means:</strong> The probability conversion is broken -- ERA5 proxy is wrong, interpolation has a systematic flaw, or nbm_bias is badly estimated. Fix the model before testing mispricing.</div>
+      </div>
+      <div class="card">
+        <div class="clabel blue">Layer 2 -- Is the market mispriced relative to the model?</div>
+        <div class="cbody"><strong>Question:</strong> Is model_prob - market_price (edge) consistently non-zero in a repeatable direction?<br><br><strong>Metric:</strong> Mean edge and directional persistence. For each bracket position (tail vs middle, measured as distance from p50 in sigma units), compute mean edge across days. Also compute the fraction of days where edge has the same sign as the mean -- this is directional persistence.<br><br><strong>Failure means:</strong> The model may be well-calibrated but the market is also well-calibrated. No exploitable gap exists at the bracket level. Not a model failure -- a market efficiency finding.</div>
+      </div>
+      <div class="card">
+        <div class="clabel green">Layer 3 -- Is the gap economically tradable?</div>
+        <div class="cbody"><strong>Question:</strong> After fees, spreads, and execution friction, is hypothetical P&L positive?<br><br><strong>Metric:</strong> After-cost paper P&L across all paper-trade days. Model a realistic round-trip cost (entry spread + Kalshi fee) and subtract from gross edge. Compare against zero and against baseline 1 (NBM p50 bracket).<br><br><strong>Failure means:</strong> Edge exists but is too small to capture. This is a microstructure problem, not a model or market problem. Could still be salvageable if edge is concentrated in specific setups.</div>
+      </div>
+
+      <div class="sec">Predeclared evaluation metrics</div>
+      <div class="prose">These metrics are locked before v0 runs. They cannot be changed post-hoc to fit the data.</div>
+      <table class="t">
+        <thead><tr><th>What</th><th>Metric</th><th>Threshold</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Model calibration</td><td>Brier score vs naive normal baseline</td><td>Must be lower (better) than naive normal</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
+          <tr><td>Directional persistence</td><td>Fraction of days where edge sign matches mean sign, per bracket position</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL -- 60% used as placeholder. Set from bootstrap before v0 ends.</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
+          <tr><td>Economic tradeability</td><td>After-cost paper P&L vs zero</td><td>Must be positive over full sample</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
+          <tr><td>Noise test</td><td>Permutation test on mean edge</td><td>p &lt; 0.10 (one-tailed) before v1 unlocks</td><td style="color:var(--amber);font-family:var(--mono);font-size:10px">PROVISIONAL</td></tr>
+        </tbody>
+      </table>
+
+      <div class="sec">Noise test -- predeclared decision rule</div>
+      <div class="card">
+        <div class="clabel red">This must be specified before v0 ends, not after</div>
+        <div class="cbody"><strong>Method:</strong> Permutation test on mean edge. Shuffle the outcome labels (actual_max_f) across days, recompute mean edge for each bracket position 1000 times, and check where the observed mean edge falls in that null distribution.<br><br><strong>Decision rule:</strong> If observed mean edge falls above the 90th percentile of the permuted distribution (p &lt; 0.10, one-tailed), edge is unlikely to be noise. This threshold is intentionally lenient given the sample size -- it filters obvious noise, not marginal cases.<br><br><strong>Why permutation, not t-test:</strong> Edge values are not normally distributed and may be serially correlated across days. Permutation is distribution-free and more honest for this data structure.<br><br><strong style="color:var(--amber)">If this test is not pre-registered before v0 ends, the v0/v1 gate cannot be evaluated without post-hoc bias risk.</strong></div>
+      </div>
+
+      <div class="sec">Baselines -- with predeclared comparison metric</div>
+      <div class="note amber"><strong>Comparison metric for all baselines: after-cost paper P&L.</strong> A baseline "wins" if its hypothetical after-cost P&L over the v0 sample exceeds the model's. This is the single metric used for all comparisons -- no mixing of calibration metrics and P&L metrics across baselines.</div>
+
+      <div class="baseline">
+        <div class="bl-top"><span class="bl-name">1. NBM p50 bracket</span><span class="bl-status bl-must">MUST BEAT</span></div>
+        <div class="bl-desc">Bet the bracket containing the NBM 50th percentile every day at the prevailing market price. Primary economic baseline. If the model cannot beat this, bracket conversion adds nothing.</div>
+      </div>
+      <div class="baseline">
+        <div class="bl-top"><span class="bl-name">2. Naive normal distribution</span><span class="bl-status bl-must">MUST BEAT</span></div>
+        <div class="bl-desc">Same interpolation logic but using scipy norm.fit() instead of asymmetric zones. Tests whether the tail-width fix earns its complexity. Also compared on Brier score, not just P&L.</div>
+      </div>
+      <div class="baseline">
+        <div class="bl-top"><span class="bl-name">3. Highest market-probability bracket</span><span class="bl-status bl-must">MUST BEAT</span></div>
+        <div class="bl-desc">Buy whichever bracket Kalshi prices highest each day. No model needed. Tests whether the model adds anything over betting the crowd favourite.</div>
+      </div>
+      <div class="baseline">
+        <div class="bl-top"><span class="bl-name">4. Simplification check (not an independent baseline)</span><span class="bl-status bl-tbd">DIAGNOSTIC</span></div>
+        <div class="bl-desc">Take only the bracket with the largest absolute edge each day. This is derived from the model itself so it is not an independent baseline -- it is a simplification check. If it matches full model P&L, no classification logic beyond "biggest gap" is adding value.</div>
+      </div>
+
+      <div class="sec">What v0 must NOT do</div>
+      <div class="note red"><strong>Do not build directional logic into v0.</strong> No bias toward tails. No bias toward middles. No flag for "positive edge only." Log all brackets, all edge values, positive and negative. The logging structure enables post-hoc analysis. The v0 model has no opinion on direction.</div>
+
+      <div class="sec">Intraday hypothesis (kept separate)</div>
+      <div class="note purple"><strong>Independent hypothesis:</strong> "As realized temperature reduces uncertainty during the day, market prices may lag updated probabilities when the observed path diverges from the morning forecast." Only test after morning mispricing is validated OR explicitly rejected. Not merged with v0.</div>
+
+      <div class="sec">Evidence log</div>
+      <div class="note blue"><strong>March 2026 -- weak prior only:</strong> A participant has reportedly made money buying high-probability middle brackets and fading tails. This is one anecdotal data point. It justifies removing the old directional assumption from v0 -- nothing more. It is not the new narrative center of the project. Treat as weak prior evidence until v0 data speaks.</div>
+    </div>
+  </div>
+</div>
+<div class="acc-item">
+  <input type="checkbox" id="acc-decisions" class="acc-toggle">
+  <label class="acc-header" for="acc-decisions">
+    <span class="acc-title">Decisions Log</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">Decisions log</div>
+      <div class="panel-title">What we decided and why</div>
+      <div class="panel-lead">Most important decisions, categorised. Add new decisions at the top of each category with a date. Update before writing code.</div>
+
+      <div class="sec">Methodology</div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADDED</span><div class="dec-what">All numeric thresholds labeled PROVISIONAL until grounded in data</div></div>
+        <div class="dec-why">The following are placeholders, not empirically justified values: 20-30 day sample window, 60% directional consistency, 3F record proximity cutoff, 14:00 intraday peak assumption, 50% live sizing for first 10 days. They are reasonable starting points. They will be replaced by values derived from v0 data before v1 builds. Labeling them PROVISIONAL is a pre-commitment to not treat them as validated.</div>
+      </div>
+        <div class="dec-old">Was: assumed tails are underpriced because retail bettors anchor to point forecasts and underweight tail outcomes</div>
+        <div class="dec-new">Now: "markets may systematically misallocate probability mass across brackets." Direction unknown until v0 data answers it.</div>
+        <div class="dec-why">Real-world signal invalidated the directional assumption. A participant has reportedly made money buying high-probability middle brackets and fading tails -- the opposite of "tails underpriced." One data point, not proof. But sufficient to remove the directional assumption from v0 logic. v0 logs all brackets, both positive and negative edge.</div>
+    </div>
+  </div>
+</div>
+<div class="acc-item">
+  <input type="checkbox" id="acc-questions" class="acc-toggle">
+  <label class="acc-header" for="acc-questions">
+    <span class="acc-title">Open Questions</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">Open questions</div>
+      <div class="panel-title">Unresolved</div>
+      <div class="panel-lead">Add questions before making assumptions in code. H = blocks the build. M = resolve before v1. L = deferrable.</div>
+
+      <div class="sec">Resolved</div>
+      <div class="card">
+        <div class="oq">
+          <span class="oq-p r">OK</span>
+          <div>
+            <div class="oq-q">Is ERA5 an adequate proxy for historical NBM output in the calibration regression?</div>
+            <div class="oq-ctx"><strong>Resolved (calibration.py, v0).</strong> Over ~3 years of overlapping KNYC days (ASOS daily max vs Open-Meteo ERA5 daily 2m max as NBM p50 proxy), mean residual ASOS minus proxy is <strong>0.20°F</strong> (written to <code>config.json</code> as <code>nbm_bias</code>). That systematic offset is small enough that proxy validity is <strong>low-risk for v0</strong>: even if ERA5 and operational NBM differ somewhat, the additive correction is tiny and unlikely to dominate model error. Revisit if Layer 1 (Brier vs naive baseline) fails badly.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">Blocks v0</div>
+      <div class="card">
+        <div class="oq">
+          <span class="oq-p h">H</span>
+          <div>
+            <div class="oq-q">Does Kalshi API return bracket boundaries as numeric values or only as label strings?</div>
+            <div class="oq-ctx">The interpolation needs numeric L and U. If only strings like ">=72F", we need a parser. Check API docs before writing data_pipeline.py.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">Resolve before v1</div>
+      <div class="card">
+        <div class="oq">
+          <span class="oq-p m">M</span>
+          <div>
+            <div class="oq-q">Does NE/E wind at 7am reliably predict NE/E wind at 2pm at KNYC?</div>
+            <div class="oq-ctx">If wind commonly reverses, the v1 regime classifier using 7am wind may mis-classify the day. Quantify reversal rate from v0 ASOS data before setting regime weights.</div>
+          </div>
+        </div>
+        <div class="oq">
+          <span class="oq-p m">M</span>
+          <div>
+            <div class="oq-q">What is the minimum viable Kalshi bracket liquidity for the liquidity filter?</div>
+            <div class="oq-ctx">Thin brackets have wide spreads that eat edge. Need to check actual open interest on NYC temp brackets before setting a threshold in v1.</div>
+          </div>
+        </div>
+        <div class="oq">
+          <span class="oq-p m">M</span>
+          <div>
+            <div class="oq-q">What happens when ASOS obs is delayed or missing at 7am?</div>
+            <div class="oq-ctx">Needs a defined fallback in v1. Current plan: default regime to REDUCED, flag in alert. Never silently assume a stable day.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">Deferrable</div>
+      <div class="card">
+        <div class="oq">
+          <span class="oq-p l">L</span>
+          <div>
+            <div class="oq-q">Is nbm_bias stable across seasons?</div>
+            <div class="oq-ctx">Urban heat island and model physics may produce larger bias in summer than winter. A single constant may not be adequate. Investigate from v0 data after 30 days of logging model_error_f by month.</div>
+          </div>
+        </div>
+        <div class="oq">
+          <span class="oq-p l">L</span>
+          <div>
+            <div class="oq-q">Should intraday use a different probability model than the morning engine?</div>
+            <div class="oq-ctx">By noon the effective distribution has collapsed -- the NBM spread from 7am overstates uncertainty. The intraday engine may need to re-fit the distribution using the current observed temp as a constraint. Decide in v1 design phase.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="acc-item">
+  <input type="checkbox" id="acc-risk" class="acc-toggle">
+  <label class="acc-header" for="acc-risk">
+    <span class="acc-title">Risk Register</span>
+    <span class="acc-icon">&#x203a;</span>
+  </label>
+  <div class="acc-body">
+    <div class="acc-inner">
+      <div class="eyebrow">Risk register</div>
+      <div class="panel-title">What could go wrong</div>
+      <div class="panel-lead">H = could end the project. M = significant setback. L = manageable. v0 is explicitly designed to surface the H-severity risks cheaply before real money is at risk.</div>
+
+      <div class="sec">Model risks</div>
+      <div class="card">
+        <div class="risk">
+          <span class="rsev hi">H</span>
+          <div class="risk-body">
+            <div class="risk-t">No real edge exists -- most likely outcome</div>
+            <div class="risk-m">Mitigation: v0 is explicitly designed to find this out cheaply. 20-30 days paper trading, no real money. Hard stop: if all four success criteria fail, default conclusion is no usable edge, not "needs more complexity."</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev hi">H</span>
+          <div class="risk-body">
+            <div class="risk-t">ERA5 is not an adequate NBM proxy -- calibration wrong from day one</div>
+            <div class="risk-m">Mitigation: v0 calibration found ~0.20°F mean ASOS minus ERA5 proxy — low severity for additive bias. Residual concern: NBM may still differ from ERA5; if Layer 1 calibration fails, revisit proxy choice before blaming market mispricing.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">Edge exists but is too small -- disappears after fees and spreads</div>
+            <div class="risk-m">Mitigation: model all-in cost from actual Kalshi transactions before scaling. The economically meaningful success criterion in v0 requires gaps large enough to plausibly survive costs before any live betting.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">Market efficiency risk -- others correct pricing faster than we can act</div>
+            <div class="risk-m">Mitigation: v0 measures how fast prices move after 7am. If prices are already at fair value by the time morning model runs, the opportunity does not exist at that time window. Intraday hypothesis tests a shorter window.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">Overfitting narrative to limited observations -- the participant result</div>
+            <div class="risk-m">Mitigation: the middle-bracket signal is informative but not definitive. It shifts the prior, it does not set the direction. v0 measures all brackets without assuming which are mispriced. Let 20-30 days of data answer the direction question.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev lo">L</span>
+          <div class="risk-body">
+            <div class="risk-t">p10/p50/p90 interpolation too coarse on extreme days</div>
+            <div class="risk-m">Mitigation: baseline comparison vs naive normal quantifies this. Extreme day performance tracked in v0 log. Add p25/p75 in v1 if calibration shows systematic zone-boundary error.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev lo">L</span>
+          <div class="risk-body">
+            <div class="risk-t">nbm_bias unstable across seasons</div>
+            <div class="risk-m">Mitigation: v0 logs model_error_f by month. Check for seasonal drift after 30 days. Compute seasonal bias values in v1 if needed.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec">Operational risks</div>
+      <div class="card">
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">Data pull failure causes a missed bet or a bet on stale data</div>
+            <div class="risk-m">Mitigation: fail loudly, never silently. v0 is manual -- you see failures immediately. v1 adds automated failure alerts before Telegram bets fire.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev lo">L</span>
+          <div class="risk-body">
+            <div class="risk-t">Kalshi market structure changes (bracket boundaries, settlement rules)</div>
+            <div class="risk-m">Mitigation: bracket parser is format-agnostic as long as numeric bounds are extractable. Review Kalshi changelog if parsing fails.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+  </div>
+</div>
+<script>
+function togglePhase(id) { document.getElementById(id).classList.toggle('open'); }
+function toggleTask(el) {
+  var check = el.querySelector('.task-check');
+  var text = el.querySelector('.task-text');
+  var done = check.classList.toggle('done');
+  text.classList.toggle('done', done);
+}
+</script>
+</body>
+</html>

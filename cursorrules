@@ -1,0 +1,89 @@
+# NYC Temp Model -- Cursor Rules
+
+## Read first
+Always read CLAUDE.md before starting any task. It contains the current phase,
+active task, and key constraints. If CLAUDE.md says we are in v0, we are in v0.
+
+## What this project is
+A bracket-probability conversion engine for Kalshi NYC daily high temperature markets.
+We are testing a hypothesis. We are not building a production system yet.
+
+## Current phase: V0
+V0 is a hypothesis instrument -- three files, paper trade, manual review.
+The goal is evidence. Not profit. Not a polished system.
+
+V0 files only:
+  calibration.py    -- one-time script, outputs nbm_bias to config.json
+  morning_model.py  -- core model, runs manually each morning
+  logger.py         -- SQLite log + terminal print
+
+Do not build anything else until v0 produces evidence.
+
+## Hard rules -- never violate these
+
+### On the model
+- NBM percentiles (p10, p50, p90) are the entire forecast input.
+- Do NOT add separate adjustments for sky cover, wind direction, RH, dewpoint,
+  or any other surface variable. NBM already incorporates those internally.
+  Adding them on top is double-counting.
+- Use asymmetric zone interpolation for bracket probabilities, not a normal
+  distribution fit. Right tail width = p90-p50. Left tail width = p50-p10.
+- Apply nbm_bias (from config.json) as a shift to all percentiles before
+  building zones. This is the only correction applied in v0.
+
+### On direction
+- Do not assume tails are underpriced.
+- Do not assume middles are underpriced.
+- Do not build any logic that filters for positive edge only.
+- Log all brackets, all edge values -- positive and negative.
+- Direction is an output of v0 data, not an input to v0 code.
+
+### On thresholds
+- Every numeric threshold in the code must be labeled # PROVISIONAL in a comment.
+- Examples: 3F record proximity cutoff, 20-day sample window, 60% persistence.
+- These are starting estimates. They are not empirically validated.
+- Do not treat them as correct. Do not optimize for them.
+
+### On scope
+- No regime filter in v0.
+- No intraday engine in v0.
+- No Telegram alerts in v0.
+- No Kelly sizing in v0.
+- No bet execution of any kind in v0.
+- If a feature is not in the v0 build order in CLAUDE.md, it does not get built.
+
+## Code style
+- Python 3.11
+- Simple, readable code. This is a beginner-to-intermediate Python project.
+- No unnecessary abstractions. One function does one thing.
+- Every function has a docstring explaining what it does and what it returns.
+- Fail loudly. If a data pull fails, raise an error. Never silently continue
+  on stale or missing data.
+- Keep files short. If a file exceeds ~150 lines, ask whether it should be split.
+
+## Data sources
+- NBM: NOAA National Blend of Models. No API key required.
+- ASOS KNYC: mesonet.agron.iastate.edu/request/asos. No API key required.
+- Kalshi: REST API. Key in .env as KALSHI_API_KEY.
+- NWS CLI: forecast.weather.gov. No API key required.
+- ERA5: Used only in calibration.py as a historical NBM proxy.
+
+## Session workflow
+At the start of a session:
+  Read CLAUDE.md. State the current phase and active task. Confirm before building.
+
+At the end of a session (when the user says "wrap up"):
+  Output an updated CLAUDE.md with:
+  - Current phase updated if a file was completed
+  - Active task updated to the next item in the build order
+  - Any decisions made during the session noted
+  Then output the git commit message to use.
+
+## What success looks like in v0
+Not a working betting system. Not profit.
+Success is 20-30 days of logged data that answers:
+  1. Does model_prob differ from market_price in a repeatable direction?
+  2. Which brackets -- tails or middles -- show the gap?
+  3. Does the gap survive a permutation test (p < 0.10)?
+If those questions cannot be answered from the log, v0 failed regardless of
+how well the code runs.
