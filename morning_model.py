@@ -275,22 +275,27 @@ def column_valid_times_utc(cycle_init: datetime, fhr_row: list[Optional[int]]) -
 
 def pick_column_index(
     valid_times: list[Optional[datetime]],
-    valid_start_utc: datetime,
-    max_error_hours: float = 6.0,
+    fhr_row: list[Optional[int]],
+    target_date: date,
 ) -> Optional[int]:
-    """Choose column whose valid UTC is closest to valid_start_utc within max_error_hours."""
-    max_sec = max_error_hours * 3600.0
+    """
+    Column whose valid UTC falls on target_date in America/New_York; FHR in [6, 48].
+    If multiple qualify, lowest FHR (shortest lead time) wins.
+    """
+    z = _zone()
     best_j: Optional[int] = None
-    best_err = 1e30
+    best_fh: Optional[int] = None
     for j, vt in enumerate(valid_times):
         if vt is None:
             continue
-        err = abs((vt - valid_start_utc).total_seconds())
-        if err > max_sec:
+        fh = fhr_row[j] if j < len(fhr_row) else None
+        if fh is None or fh < 6 or fh > 48:
             continue
-        if err < best_err:
-            best_err = err
+        if vt.astimezone(z).date() != target_date:
+            continue
+        if best_j is None or fh < best_fh:
             best_j = j
+            best_fh = fh
     return best_j
 
 
@@ -306,7 +311,8 @@ def fetch_pctmax_from_nbp_text(
 
     Returns (p10, p50, p90, meta).
     """
-    anchor_date = valid_start_utc.date()
+    target_date = valid_start_utc.astimezone(_zone()).date()
+    anchor_date = target_date
     for day_off in (0, -1, -2):
         d = anchor_date + timedelta(days=day_off)
         ymd = d.strftime("%Y%m%d")
@@ -332,14 +338,7 @@ def fetch_pctmax_from_nbp_text(
                 continue
             cycle_init = datetime(d.year, d.month, d.day, hh, tzinfo=timezone.utc)
             vts = column_valid_times_utc(cycle_init, fhr)
-            vts_for_pick: list[Optional[datetime]] = []
-            for jcol in range(len(vts)):
-                fh = fhr[jcol] if jcol < len(fhr) else None
-                if fh is None or fh < 6 or fh > 48:
-                    vts_for_pick.append(None)
-                else:
-                    vts_for_pick.append(vts[jcol])
-            j = pick_column_index(vts_for_pick, valid_start_utc, 6.0)
+            j = pick_column_index(vts, fhr, target_date)
             if j is None:
                 continue
             p1 = rows["TXNP1"][j] if j < len(rows["TXNP1"]) else None
@@ -363,8 +362,8 @@ def fetch_pctmax_from_nbp_text(
                 )
             return p10, p50, p90, meta
     raise RuntimeError(
-        "No NBP bulletin found with a column within 6hr of valid_start_utc="
-        f"{valid_start_utc.isoformat()} and FHR in [6,48]"
+        "No NBP bulletin found with a column valid on local date "
+        f"{target_date.isoformat()} (America/New_York) with FHR in [6,48]"
     )
 
 
@@ -544,6 +543,8 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=Path(__file__).resolve().parent / "config.json")
     ap.add_argument("--series", type=str, default=DEFAULT_KALSHI_SERIES)
     ap.add_argument("--mock-nbm", type=str, default="", help="Comma p10,p50,p90 in °F (skip NBP download).")
+    ap.add_argument("--no-log", action="store_true", help="Skip SQLite log and stderr bracket table.")
+    ap.add_argument("--log-db", type=Path, default=None, help="SQLite file (default: nyc_temp_log.sqlite beside config).")
     ap.add_argument("--test", action="store_true", help="Run built-in synthetic checks and exit.")
     args = ap.parse_args()
     if args.test:
@@ -567,6 +568,7 @@ def main() -> int:
         pct_f, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, target)
 
     rows = run_model(target, nbm_bias, args.series, pct_f)
+    pull_ts = datetime.now(timezone.utc)
     p10b, p50b, p90b = apply_nbm_bias(pct_f[0], pct_f[1], pct_f[2], nbm_bias)
     out: dict[str, Any] = {
         "target_date_local": target.isoformat(),
@@ -606,6 +608,22 @@ def main() -> int:
         return x
 
     print(json.dumps(_json_safe(out), indent=2))
+    if not args.no_log:
+        from logger import DEFAULT_DB_NAME, log_morning_run, print_terminal_review
+
+        log_db = args.log_db if args.log_db is not None else Path(__file__).resolve().parent / DEFAULT_DB_NAME
+        log_morning_run(
+            log_db,
+            target,
+            rows,
+            pct_f,
+            nbm_bias,
+            bool(out["record_proximity_flag"]),
+            out.get("nws_log_context") or {},
+            pull_ts,
+            Path(__file__).resolve().parent / "records.json",
+        )
+        print_terminal_review(target, rows)
     return 0
 
 

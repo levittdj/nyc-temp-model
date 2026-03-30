@@ -17,7 +17,7 @@ Goal: evidence, not profit.
 
 ## Active task
 [UPDATE THIS AT THE END OF EVERY SESSION]
-Phase 0 -- calibration.py + morning_model.py done. Next: logger.py.
+Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: daily paper run + backfill workflow as needed.
 
 ## Build order (v0 only)
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json

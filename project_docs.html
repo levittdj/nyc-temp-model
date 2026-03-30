@@ -329,6 +329,8 @@ section { margin-bottom: 8px }
 
       <div class="note amber"><strong>Current priority: falsify the hypothesis as fast as possible.</strong> Build v0 -- the minimum instrument to determine whether mispricing exists, what direction it takes, and how stable it is. We do not assume tails are underpriced. We do not assume any direction. The data answers those questions.</div>
 
+      <div class="note green"><strong>Progress (2026-03-29):</strong> <code>calibration.py</code> and <code>morning_model.py</code> run end-to-end locally. NBM triple comes from NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9); column pick matches the NWS max-T <em>local</em> calendar day with FHR in [6, 48] (see Decisions). Kalshi mid-prices via public trade API. <strong>Next v0 step:</strong> <code>logger.py</code> (SQLite + manual terminal review).</div>
+
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
         <span class="ver-tag v0">V0</span>
@@ -345,9 +347,9 @@ section { margin-bottom: 8px }
       <table class="t">
         <thead><tr><th>File</th><th>Version</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td>calibration.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- build first</td></tr>
-          <tr><td>morning_model.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Built -- NOMADS NBP text (KNYC TXNP1/5/9) + zones + KXHIGHNY; no GRIB</td></tr>
-          <tr><td>logger.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- 4 fields only</td></tr>
+          <tr><td>calibration.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Done -- 3yr KNYC ASOS + ERA5 proxy; OLS → <code>nbm_bias</code> in <code>config.json</code>. Optional: <code>records.json</code> for record-proximity flag.</td></tr>
+          <tr><td>morning_model.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Built -- NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9), local-day column match + FHR [6,48], zone CDF, KXHIGHNY mids, JSON stdout; <code>--mock-nbm</code> / <code>--test</code></td></tr>
+          <tr><td>logger.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- next v0 file (SQLite, fields per spec)</td></tr>
           <tr><td>regime.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- tune from v0 data</td></tr>
           <tr><td>intraday_engine.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- separate hypothesis</td></tr>
           <tr><td>alerts.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- not needed for evidence</td></tr>
@@ -430,8 +432,8 @@ section { margin-bottom: 8px }
         </div>
         <div class="evo-row">
           <div class="evo-cell evo-label">Logging</div>
-          <div class="evo-cell evo-v0">4 fields: model_prob, market_price, edge, outcome.</div>
-          <div class="evo-cell evo-v1">21 fields. Regime components, trajectory delta, entry/exit prices, would_have_won flag.</div>
+          <div class="evo-cell evo-v0">20 SQLite columns (8 bracket + 12 day-level). Unconditional logging, no v0 filters. See Build Tracker logger task.</div>
+          <div class="evo-cell evo-v1">Extended fields beyond v0. Regime components, trajectory delta, entry/exit prices, would_have_won flag.</div>
         </div>
         <div class="evo-row">
           <div class="evo-cell evo-label">Deployment</div>
@@ -486,39 +488,39 @@ section { margin-bottom: 8px }
 
       <div class="sec">V0 -- hypothesis instrument</div>
 
-      <div class="phase-block open" id="phase-cal">
+      <div class="phase-block" id="phase-cal">
         <div class="phase-header" onclick="togglePhase('phase-cal')">
           <span class="phase-num">CAL</span>
           <span class="phase-name">calibration.py</span>
-          <span class="badge badge-active">Active</span>
+          <span class="badge badge-done">Done</span>
           <span class="chev">></span>
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Pull 3yr KNYC ASOS daily obs from Iowa State Mesonet</div>
+              <div class="task-text done">Pull 3yr KNYC ASOS daily obs from Iowa State Mesonet</div>
               <div class="task-note">mesonet.agron.iastate.edu/request/asos -- free, no key</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Pull ERA5 reanalysis as NBM proxy for same period</div>
+              <div class="task-text done">Pull ERA5 reanalysis as NBM proxy for same period</div>
               <div class="task-note">Resolved: mean bias ~0.20°F vs ASOS — adequate for v0 (see Open Questions).</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">OLS regression: residuals = ASOS obs minus NBM p50</div>
+              <div class="task-text done">OLS regression: residuals = ASOS obs minus NBM p50</div>
               <div class="task-note">Outputs nbm_bias only. ne_shift deferred to v1.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Verify nbm_bias is below 3F. Write to config.json.</div>
+              <div class="task-text done">Verify nbm_bias is below 3F. Write to config.json.</div>
               <div class="task-note">Gate: if outside range, investigate data quality first</div>
             </div>
           </div>
@@ -536,82 +538,82 @@ section { margin-bottom: 8px }
         <div class="phase-header" onclick="togglePhase('phase-model')">
           <span class="phase-num">MODEL</span>
           <span class="phase-name">morning_model.py</span>
-          <span class="badge badge-pending">Pending</span>
+          <span class="badge badge-done">Done</span>
           <span class="chev">></span>
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">NBM p10/p50/p90 pull for KNYC</div>
-              <div class="task-note">No API key needed. Also pull wind_dir, sky_cover, overnight_low for logging -- not for filtering.</div>
+              <div class="task-text done">NBM p10/p50/p90 pull for KNYC</div>
+              <div class="task-note">NOMADS blend_nbptx (TXNP1/5/9); column = local calendar day from NWS max-T valid + FHR [6,48], tie-break lowest FHR. Grid max-T + 7am wind/sky from api.weather.gov for logging.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Kalshi bracket yes-price pull</div>
-              <div class="task-note">Requires Kalshi API key in .env. Parse bracket boundaries to numeric L and U.</div>
+              <div class="task-text done">Kalshi bracket yes-price pull</div>
+              <div class="task-note">Public trade API (mid from bid/ask); title parser → numeric L/U. Auth not required for open markets list used in v0.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">build_zones() -- asymmetric tail interpolation</div>
+              <div class="task-text done">build_zones() -- asymmetric tail interpolation</div>
               <div class="task-note">Apply nbm_bias before building. Right tail = p90-p50. Left tail = p50-p10.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">bracket_prob() -- compute model_prob per bracket</div>
+              <div class="task-text done">bracket_prob() -- compute model_prob per bracket</div>
               <div class="task-note">Integrate zone mass over each Kalshi bracket boundary range.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Compute edge = model_prob minus market_price per bracket</div>
+              <div class="task-text done">Compute edge = model_prob minus market_price per bracket</div>
               <div class="task-note">No threshold applied. Log all brackets, all edges, positive and negative.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Record proximity flag (p90 within 3F of daily record)</div>
+              <div class="task-text done">Record proximity flag (p90 within 3F of daily record)</div>
               <div class="task-note">PROVISIONAL -- 3F threshold is a starting estimate. Logged as a field. Not acted on in v0.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Test with hardcoded fake NBM inputs before live API calls</div>
-              <div class="task-note">Gate: correct output on 3 synthetic test cases before proceeding</div>
+              <div class="task-text done">Test with hardcoded fake NBM inputs before live API calls</div>
+              <div class="task-note"><code>--test</code> synthetic self-test; <code>--mock-nbm</code> for dry runs.</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="phase-block" id="phase-log">
+      <div class="phase-block open" id="phase-log">
         <div class="phase-header" onclick="togglePhase('phase-log')">
           <span class="phase-num">LOG</span>
           <span class="phase-name">logger.py</span>
-          <span class="badge badge-pending">Pending</span>
+          <span class="badge badge-active">Active</span>
           <span class="chev">></span>
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
-              <div class="task-text">SQLite log -- 8 fields per day per bracket</div>
-              <div class="task-note">date, bracket_label, model_prob, market_price, edge, actual_max_f, outcome, record_prox_flag -- plus regime inputs (spread, wind_dir, sky_cover) for v1 threshold analysis</div>
+              <div class="task-text">SQLite log -- 20 fields (8 bracket + 12 day-level) per bracket-day</div>
+              <div class="task-note"><strong>Layout:</strong> Either one table with day-level columns repeated on every bracket row for that <code>date</code>, or two tables (<code>days</code> + <code>brackets</code>) joined on <code>date</code> — implementer&apos;s choice, whichever is simpler. All fields logged unconditionally; no v0 thresholds.<br><br><strong>BRACKET FIELDS</strong> (one row per bracket per day)<br><code>date</code> TEXT (YYYY-MM-DD) · <code>bracket_label</code> TEXT (e.g. 59-60) · <code>bracket_lower_f</code> REAL (NULL open low) · <code>bracket_upper_f</code> REAL (NULL open high) · <code>model_prob</code> REAL (0–1) · <code>market_price</code> REAL (0–1, Kalshi yes at pull) · <code>edge</code> REAL (<code>model_prob</code> − <code>market_price</code>) · <code>outcome</code> INTEGER (1 if <code>actual_max</code> in bracket else 0; NULL until backfilled)<br><br><strong>DAY FIELDS</strong> (same value on each bracket row for that date, or separate day row)<br><code>actual_max_f</code> REAL (NWS CLI; NULL until backfill) · <code>nbm_p10</code> / <code>nbm_p50</code> / <code>nbm_p90</code> REAL (raw NBM, pre-bias) · <code>nbm_bias_applied</code> REAL (<code>config.json</code> value that day) · <code>nbm_spread</code> REAL (<code>p90</code> − <code>p10</code>, pre-bias) · <code>wind_dir</code> TEXT (e.g. NE, morning METAR or NBM) · <code>sky_cover</code> TEXT (e.g. OVC) · <code>overnight_low_f</code> REAL (prior night KNYC low) · <code>record_high_f</code> REAL (calendar-date record from <code>records.json</code>) · <code>record_prox_flag</code> INTEGER (1 if bias-adjusted p90 within 3°F of record else 0; <strong>PROVISIONAL</strong> threshold) · <code>pull_timestamp</code> TEXT (ISO 8601 UTC when <code>morning_model.py</code> ran)<br><br><strong>ANALYSIS NOTES</strong><br><code>bracket_lower_f</code> / <code>bracket_upper_f</code> — post-hoc distance-from-p50 and tail vs middle without re-parsing labels. Raw NBM triple — re-run model with different bias on history. <code>nbm_spread</code> — primary v1 regime candidate; raw for threshold analysis without re-fetching NBM. <code>wind_dir</code>, <code>sky_cover</code>, <code>overnight_low_f</code> — v1 regime inputs only; not used in v0 logic. <code>pull_timestamp</code> — late pulls vs edge patterns.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
               <div class="task-text">NWS CLI pull at 6am -- verified actual max</div>
-              <div class="task-note">Updates previous day's rows with actual_max_f and outcome (Win/Loss)</div>
+              <div class="task-note">Backfill previous day: <code>actual_max_f</code>, per-bracket <code>outcome</code> (1/0), and any NULL day fields as needed.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -869,6 +871,12 @@ section { margin-bottom: 8px }
 
       <div class="sec">Evidence log</div>
       <div class="note blue"><strong>March 2026 -- weak prior only:</strong> A participant has reportedly made money buying high-probability middle brackets and fading tails. This is one anecdotal data point. It justifies removing the old directional assumption from v0 -- nothing more. It is not the new narrative center of the project. Treat as weak prior evidence until v0 data speaks.</div>
+
+      <div class="sec">Pre-registered sub-hypothesis (FLB)</div>
+      <div class="card">
+        <div class="clabel dim">TEST AFTER V0 DATA COLLECTION</div>
+        <div class="cbody">Favorite-longshot bias predicts that Kalshi weather tail brackets (<code>market_price</code> below 0.15) are systematically overpriced and middle brackets (<code>market_price</code> above 0.50) are systematically underpriced relative to true probabilities.<br><br><strong>Test:</strong> After 20-30 days of v0 data, partition all bracket-day pairs by <code>market_price</code> into two groups: above 0.50 and below 0.15. Compute mean edge (<code>model_prob</code> minus <code>market_price</code>) for each group. FLB predicts mean edge is negative for the cheap group and positive for the expensive group.<br><br>This is a secondary analysis. It does not affect v0 model logic, logging, or the three primary evaluation layers. It was pre-registered on 2026-03-29 before any v0 data was collected.<br><br><strong>Sources:</strong> Bürgi, Deng &amp; Whelan (2026) &ldquo;Makers and Takers&rdquo; CEPR DP 20631; anecdotal participant report (see Evidence Log above).</div>
+      </div>
     </div>
   </div>
 </div>
@@ -887,12 +895,26 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">Pre-registered FLB sub-hypothesis for v0 analysis phase</div></div>
+        <div class="dec-why">Three independent signals suggest favorite-longshot bias may apply to Kalshi weather markets: (1) Bürgi et al. 2026 documents FLB across all Kalshi categories in 300,000+ contracts — cheap contracts win less often than price implies, expensive contracts win slightly more often. (2) Weak prior: participant reportedly profitable buying high-probability middles and fading tails. (3) Structural argument: retail traders overweight cheap lottery-ticket tail contracts, pushing tail prices above fair value.<br><br>Pre-registered sub-hypothesis (written before v0 data collection): After v0 paper trading, test whether brackets with <code>market_price</code> above 0.50 show positive mean edge (<code>model_prob</code> &gt; <code>market_price</code>) and brackets with <code>market_price</code> below 0.15 show negative mean edge (<code>model_prob</code> &lt; <code>market_price</code>). This is a secondary analysis run after the three primary evaluation layers. It does not change v0 logic, filtering, or logging. Direction remains an output of the data, not an input to the code.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-03-29 — NBP text column selection (KNYC TXNP1/5/9)</div></div>
+        <div class="dec-why">TXNP valid times are on long (≈24h) forecast-hour steps; the column nearest in raw UTC to the NWS grid max-T <code>validTime</code> can be 8h+ away and was a poor match (evenings ET walked the wrong blend day). <strong>Now:</strong> walk blend directories from the NWS max-T instant mapped to <strong>America/New_York calendar date</strong> (offsets 0, −1, −2). Choose the column with FHR in <strong>[6, 48]</strong> whose valid UTC falls on that <strong>same local date</strong>; if several, <strong>lowest FHR</strong> (shortest lead). No change to zone math or GRIB path.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag add">ADDED</span><div class="dec-what">All numeric thresholds labeled PROVISIONAL until grounded in data</div></div>
         <div class="dec-why">The following are placeholders, not empirically justified values: 20-30 day sample window, 60% directional consistency, 3F record proximity cutoff, 14:00 intraday peak assumption, 50% live sizing for first 10 days. They are reasonable starting points. They will be replaced by values derived from v0 data before v1 builds. Labeling them PROVISIONAL is a pre-commitment to not treat them as validated.</div>
       </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">Hypothesis statement — direction agnostic (v0)</div></div>
         <div class="dec-old">Was: assumed tails are underpriced because retail bettors anchor to point forecasts and underweight tail outcomes</div>
         <div class="dec-new">Now: "markets may systematically misallocate probability mass across brackets." Direction unknown until v0 data answers it.</div>
         <div class="dec-why">Real-world signal invalidated the directional assumption. A participant has reportedly made money buying high-probability middle brackets and fading tails -- the opposite of "tails underpriced." One data point, not proof. But sufficient to remove the directional assumption from v0 logic. v0 logs all brackets, both positive and negative edge.</div>
+      </div>
     </div>
   </div>
 </div>
