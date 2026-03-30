@@ -329,7 +329,7 @@ section { margin-bottom: 8px }
 
       <div class="note amber"><strong>Current priority: falsify the hypothesis as fast as possible.</strong> Build v0 -- the minimum instrument to determine whether mispricing exists, what direction it takes, and how stable it is. We do not assume tails are underpriced. We do not assume any direction. The data answers those questions.</div>
 
-      <div class="note green"><strong>Progress (2026-03-29):</strong> <code>calibration.py</code> and <code>morning_model.py</code> run end-to-end locally. NBM triple comes from NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9); column pick matches the NWS max-T <em>local</em> calendar day with FHR in [6, 48] (see Decisions). Kalshi mid-prices via public trade API. <strong>Next v0 step:</strong> <code>logger.py</code> (SQLite + manual terminal review).</div>
+      <div class="note green"><strong>Progress (2026-03-29):</strong> v0 code path is complete: <code>calibration.py</code>, <code>morning_model.py</code>, and <code>logger.py</code>. NBM triple from NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9); column pick matches the NWS max-T <em>local</em> calendar day with FHR in [6, 48] (see Decisions). Kalshi mid-prices via public trade API. Each run writes a full snapshot for that date to <code>nyc_temp_log.sqlite</code> (20 fields per bracket-day) and prints a bracket table on stderr; use <code>--no-log</code> to skip. <strong>Next v0 step:</strong> daily paper run + backfill <code>actual_max_f</code> / <code>outcome</code> from NWS CLI when ready (not automated yet).</div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
@@ -349,7 +349,7 @@ section { margin-bottom: 8px }
         <tbody>
           <tr><td>calibration.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Done -- 3yr KNYC ASOS + ERA5 proxy; OLS → <code>nbm_bias</code> in <code>config.json</code>. Optional: <code>records.json</code> for record-proximity flag.</td></tr>
           <tr><td>morning_model.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Built -- NOMADS <code>blend_nbptx</code> (KNYC TXNP1/5/9), local-day column match + FHR [6,48], zone CDF, KXHIGHNY mids, JSON stdout; <code>--mock-nbm</code> / <code>--test</code></td></tr>
-          <tr><td>logger.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Not started -- next v0 file (SQLite, fields per spec)</td></tr>
+          <tr><td>logger.py</td><td><span class="ver-tag v0" style="font-size:9px;padding:1px 6px">V0</span></td><td style="color:var(--text3)">Done -- <code>bracket_days</code> SQLite (20 cols); invoked from <code>morning_model</code> after JSON; stderr review; <code>--log-db</code> / <code>--no-log</code>. Backfill columns still manual.</td></tr>
           <tr><td>regime.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- tune from v0 data</td></tr>
           <tr><td>intraday_engine.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- separate hypothesis</td></tr>
           <tr><td>alerts.py</td><td><span class="ver-tag v1" style="font-size:9px;padding:1px 6px">V1</span></td><td style="color:var(--text3)">Deferred -- not needed for evidence</td></tr>
@@ -594,18 +594,18 @@ section { margin-bottom: 8px }
         </div>
       </div>
 
-      <div class="phase-block open" id="phase-log">
+      <div class="phase-block" id="phase-log">
         <div class="phase-header" onclick="togglePhase('phase-log')">
           <span class="phase-num">LOG</span>
           <span class="phase-name">logger.py</span>
-          <span class="badge badge-active">Active</span>
+          <span class="badge badge-done">Done</span>
           <span class="chev">></span>
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">SQLite log -- 20 fields (8 bracket + 12 day-level) per bracket-day</div>
+              <div class="task-text done">SQLite log -- 20 fields (8 bracket + 12 day-level) per bracket-day</div>
               <div class="task-note"><strong>Layout:</strong> Either one table with day-level columns repeated on every bracket row for that <code>date</code>, or two tables (<code>days</code> + <code>brackets</code>) joined on <code>date</code> — implementer&apos;s choice, whichever is simpler. All fields logged unconditionally; no v0 thresholds.<br><br><strong>BRACKET FIELDS</strong> (one row per bracket per day)<br><code>date</code> TEXT (YYYY-MM-DD) · <code>bracket_label</code> TEXT (e.g. 59-60) · <code>bracket_lower_f</code> REAL (NULL open low) · <code>bracket_upper_f</code> REAL (NULL open high) · <code>model_prob</code> REAL (0–1) · <code>market_price</code> REAL (0–1, Kalshi yes at pull) · <code>edge</code> REAL (<code>model_prob</code> − <code>market_price</code>) · <code>outcome</code> INTEGER (1 if <code>actual_max</code> in bracket else 0; NULL until backfilled)<br><br><strong>DAY FIELDS</strong> (same value on each bracket row for that date, or separate day row)<br><code>actual_max_f</code> REAL (NWS CLI; NULL until backfill) · <code>nbm_p10</code> / <code>nbm_p50</code> / <code>nbm_p90</code> REAL (raw NBM, pre-bias) · <code>nbm_bias_applied</code> REAL (<code>config.json</code> value that day) · <code>nbm_spread</code> REAL (<code>p90</code> − <code>p10</code>, pre-bias) · <code>wind_dir</code> TEXT (e.g. NE, morning METAR or NBM) · <code>sky_cover</code> TEXT (e.g. OVC) · <code>overnight_low_f</code> REAL (prior night KNYC low) · <code>record_high_f</code> REAL (calendar-date record from <code>records.json</code>) · <code>record_prox_flag</code> INTEGER (1 if bias-adjusted p90 within 3°F of record else 0; <strong>PROVISIONAL</strong> threshold) · <code>pull_timestamp</code> TEXT (ISO 8601 UTC when <code>morning_model.py</code> ran)<br><br><strong>ANALYSIS NOTES</strong><br><code>bracket_lower_f</code> / <code>bracket_upper_f</code> — post-hoc distance-from-p50 and tail vs middle without re-parsing labels. Raw NBM triple — re-run model with different bias on history. <code>nbm_spread</code> — primary v1 regime candidate; raw for threshold analysis without re-fetching NBM. <code>wind_dir</code>, <code>sky_cover</code>, <code>overnight_low_f</code> — v1 regime inputs only; not used in v0 logic. <code>pull_timestamp</code> — late pulls vs edge patterns.</div>
             </div>
           </div>
@@ -617,20 +617,20 @@ section { margin-bottom: 8px }
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Simple daily print to terminal (no Telegram yet)</div>
-              <div class="task-note">Print model_prob vs market_price vs outcome for each bracket. Review manually each morning.</div>
+              <div class="task-text done">Simple daily print to terminal (no Telegram yet)</div>
+              <div class="task-note">Bracket table on stderr after JSON (<code>model_prob</code> / <code>market_price</code> / outcome column placeholder until backfill). Review manually each morning.</div>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="phase-block" id="phase-paper">
+      <div class="phase-block open" id="phase-paper">
         <div class="phase-header" onclick="togglePhase('phase-paper')">
           <span class="phase-num">RUN</span>
           <span class="phase-name">Paper trade + evidence collection</span>
-          <span class="badge badge-pending">Pending</span>
+          <span class="badge badge-active">Active</span>
           <span class="chev">></span>
         </div>
         <div class="phase-tasks">
