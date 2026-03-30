@@ -1,43 +1,74 @@
 #!/usr/bin/env python3
 """
-v0 SQLite log: one row per bracket-day with 8 bracket-level + 12 day-level fields.
-Invoked from morning_model after each run. Terminal review on stderr (stdout stays JSON).
+v0 SQLite log.
+
+Key concepts:
+- event_date: which day's high temp the market settles on
+- snapshot_ts: when this snapshot was captured (UTC)
+- snapshot_type: "morning" (7am run) vs "intraday" (collector)
+
+Invoked from morning_model after each run. Terminal review on stderr
+(stdout stays JSON).
 """
 
 from __future__ import annotations
 
 import math
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
 
 
 DEFAULT_DB_NAME = "nyc_temp_log.sqlite"
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS bracket_days (
-    date TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS bracket_snapshots (
+    event_date TEXT NOT NULL,
+    snapshot_ts TEXT NOT NULL,
+    snapshot_type TEXT NOT NULL,
+
     bracket_label TEXT NOT NULL,
     bracket_lower_f REAL,
     bracket_upper_f REAL,
-    model_prob REAL NOT NULL,
-    market_price REAL NOT NULL,
-    edge REAL NOT NULL,
+
+    model_prob REAL,
+    market_price REAL,
+    market_bid REAL,
+    market_ask REAL,
+    edge REAL,
     outcome INTEGER,
+
     actual_max_f REAL,
-    nbm_p10 REAL NOT NULL,
-    nbm_p50 REAL NOT NULL,
-    nbm_p90 REAL NOT NULL,
-    nbm_bias_applied REAL NOT NULL,
-    nbm_spread REAL NOT NULL,
+
+    nbm_p10_raw REAL,
+    nbm_p50_raw REAL,
+    nbm_p90_raw REAL,
+    nbm_bias_applied REAL,
+    nbm_p10_adj REAL,
+    nbm_p50_adj REAL,
+    nbm_p90_adj REAL,
+    nbm_spread_raw REAL,
+    nbm_cycle TEXT,
+    forecast_lead_hours REAL,
+
     wind_dir TEXT,
+    wind_speed_kt INTEGER,
     sky_cover TEXT,
     overnight_low_f REAL,
     record_high_f REAL,
-    record_prox_flag INTEGER NOT NULL,
-    pull_timestamp TEXT NOT NULL,
-    PRIMARY KEY (date, bracket_label)
+    record_prox_flag INTEGER,
+
+    market_open_ts TEXT,
+    hours_since_open REAL,
+    hours_to_settle REAL,
+
+    PRIMARY KEY (event_date, snapshot_ts, snapshot_type, bracket_label)
 );
 """
 
@@ -94,53 +125,115 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _utc_z(ts: datetime) -> str:
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _infer_market_open_ts_utc(event_date: date, tz_name: str = "America/New_York") -> datetime:
+    """
+    Spec assumption: Kalshi temp markets open at ~10:00 local on the day before event_date.
+    If the API later provides an official open timestamp, prefer that.
+    """
+    z = ZoneInfo(tz_name)
+    local = datetime(event_date.year, event_date.month, event_date.day, 10, 0, tzinfo=z) - timedelta(days=1)
+    return local.astimezone(timezone.utc)
+
+
+def _forecast_lead_hours(snapshot_ts_utc: datetime, event_date: date, tz_name: str = "America/New_York") -> float:
+    """Hours between snapshot_ts and ~14:00 local peak time on event_date (PROVISIONAL peak time)."""
+    z = ZoneInfo(tz_name)
+    peak_local = datetime(event_date.year, event_date.month, event_date.day, 14, 0, tzinfo=z)
+    return (peak_local.astimezone(timezone.utc) - snapshot_ts_utc.astimezone(timezone.utc)).total_seconds() / 3600.0
+
+
+def _hours_to_settle(snapshot_ts_utc: datetime, event_date: date, tz_name: str = "America/New_York") -> float:
+    """Approx hours between snapshot_ts and expected CLI release (~18:00 local on event_date; PROVISIONAL)."""
+    z = ZoneInfo(tz_name)
+    settle_local = datetime(event_date.year, event_date.month, event_date.day, 18, 0, tzinfo=z)
+    return (settle_local.astimezone(timezone.utc) - snapshot_ts_utc.astimezone(timezone.utc)).total_seconds() / 3600.0
+
+
+def _nbm_cycle_from_meta(nbp_meta: dict[str, Any]) -> Optional[str]:
+    raw = nbp_meta.get("nbp_cycle_init_utc")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%HZ")
+    except Exception:
+        return str(raw)
+
+
 def log_morning_run(
     db_path: Path,
-    target: date,
+    event_date: date,
     rows: list[Any],
     pct_f_raw: tuple[float, float, float],
     nbm_bias: float,
     record_prox_flag: bool,
     nws_log_context: dict[str, Any],
-    pull_timestamp_utc: datetime,
+    snapshot_ts_utc: datetime,
+    snapshot_type: str = "morning",
+    nbp_meta: Optional[dict[str, Any]] = None,
     records_path: Optional[Path] = None,
 ) -> None:
-    """Insert or replace all bracket rows for target date (full snapshot per run)."""
+    """Insert one snapshot (one row per bracket) for a single event_date."""
     p10, p50, p90 = pct_f_raw
-    nbm_spread = p90 - p10
+    nbm_spread_raw = p90 - p10
+    p10a, p50a, p90a = p10 + nbm_bias, p50 + nbm_bias, p90 + nbm_bias
     wind_dir, sky_cover = _wind_sky_from_nws(nws_log_context)
-    rh = _record_high_for_date(target, records_path)
-    ts = pull_timestamp_utc
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    pull_s = ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rh = _record_high_for_date(event_date, records_path)
+    nbm_cycle = _nbm_cycle_from_meta(nbp_meta or {})
+
+    if snapshot_ts_utc.tzinfo is None:
+        snapshot_ts_utc = snapshot_ts_utc.replace(tzinfo=timezone.utc)
+    snapshot_s = _utc_z(snapshot_ts_utc)
+
+    open_ts_utc = _infer_market_open_ts_utc(event_date)
+    open_s = _utc_z(open_ts_utc)
+    hours_since_open = (snapshot_ts_utc.astimezone(timezone.utc) - open_ts_utc).total_seconds() / 3600.0
+    forecast_lead_hours = _forecast_lead_hours(snapshot_ts_utc, event_date)
+    hours_to_settle = _hours_to_settle(snapshot_ts_utc, event_date)
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
     try:
         ensure_schema(conn)
-        conn.execute("DELETE FROM bracket_days WHERE date = ?", (target.isoformat(),))
         for r in rows:
             label = bracket_label(r.lower_f, r.upper_f)
             lo_db, hi_db = _bounds_db(r.lower_f, r.upper_f)
+            bid = getattr(r, "market_bid", None)
+            ask = getattr(r, "market_ask", None)
             conn.execute(
                 """
-                INSERT INTO bracket_days (
-                    date, bracket_label, bracket_lower_f, bracket_upper_f,
-                    model_prob, market_price, edge, outcome,
+                INSERT OR REPLACE INTO bracket_snapshots (
+                    event_date, snapshot_ts, snapshot_type,
+                    bracket_label, bracket_lower_f, bracket_upper_f,
+                    model_prob, market_price, market_bid, market_ask, edge, outcome,
                     actual_max_f,
-                    nbm_p10, nbm_p50, nbm_p90, nbm_bias_applied, nbm_spread,
-                    wind_dir, sky_cover, overnight_low_f, record_high_f,
-                    record_prox_flag, pull_timestamp
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    nbm_p10_raw, nbm_p50_raw, nbm_p90_raw, nbm_bias_applied,
+                    nbm_p10_adj, nbm_p50_adj, nbm_p90_adj, nbm_spread_raw,
+                    nbm_cycle, forecast_lead_hours,
+                    wind_dir, wind_speed_kt, sky_cover, overnight_low_f,
+                    record_high_f, record_prox_flag,
+                    market_open_ts, hours_since_open, hours_to_settle
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    target.isoformat(),
+                    event_date.isoformat(),
+                    snapshot_s,
+                    snapshot_type,
                     label,
                     lo_db,
                     hi_db,
                     r.model_prob,
                     r.market_price,
+                    bid,
+                    ask,
                     r.edge,
                     None,
                     None,
@@ -148,13 +241,21 @@ def log_morning_run(
                     p50,
                     p90,
                     nbm_bias,
-                    nbm_spread,
+                    p10a,
+                    p50a,
+                    p90a,
+                    nbm_spread_raw,
+                    nbm_cycle,
+                    forecast_lead_hours,
                     wind_dir,
+                    None,
                     sky_cover,
                     None,
                     rh,
                     1 if record_prox_flag else 0,
-                    pull_s,
+                    open_s,
+                    hours_since_open,
+                    hours_to_settle,
                 ),
             )
         conn.commit()

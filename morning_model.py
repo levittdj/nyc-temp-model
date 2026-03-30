@@ -69,6 +69,8 @@ class BracketRow:
     market_price: float
     model_prob: float
     edge: float
+    market_bid: Optional[float] = None
+    market_ask: Optional[float] = None
 
 
 def load_config(path: Path) -> float:
@@ -485,6 +487,10 @@ def run_model(
         ticker = str(m.get("ticker", ""))
         lo, hi = kalshi_bracket_bounds(title, ticker)
         price = kalshi_mid_price(m)
+        bid = m.get("yes_bid_dollars")
+        ask = m.get("yes_ask_dollars")
+        bid_f = float(bid) if bid is not None else None
+        ask_f = float(ask) if ask is not None else None
         mp = bracket_prob(z, lo, hi)
         rows.append(
             BracketRow(
@@ -493,6 +499,8 @@ def run_model(
                 lower_f=lo,
                 upper_f=hi,
                 market_price=price,
+                market_bid=bid_f,
+                market_ask=ask_f,
                 model_prob=mp,
                 edge=mp - price,
             )
@@ -621,6 +629,8 @@ def main() -> int:
             bool(out["record_proximity_flag"]),
             out.get("nws_log_context") or {},
             pull_ts,
+            "morning",
+            out.get("nbm_fetch") or {},
             Path(__file__).resolve().parent / "records.json",
         )
         print_terminal_review(target, rows)

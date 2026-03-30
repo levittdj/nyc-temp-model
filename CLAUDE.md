@@ -32,6 +32,8 @@ Phase 0 -- calibration.py + morning_model.py + logger.py done. Next: add collect
 - NBM is the full forecast. No separate sky cover / wind / RH adjustments on top.
 - v0 logs everything, filters nothing, applies no thresholds.
 - Log both positive and negative edge. No directional bias in the code.
+- event_date is the calendar date whose high temperature the market settles on. snapshot_ts is when data was captured. These are different and must never be conflated. A 7am run on April 2nd logging April 2nd's market has event_date=2026-04-02 and forecast_lead_hours~7. The same run logging April 3rd's market has event_date=2026-04-03 and forecast_lead_hours~31.
+- v0 evaluation uses snapshot_type='morning' rows ONLY. Intraday snapshots are analysis context, not evaluation data.
 - All numeric thresholds (3F record proximity, 20-day window, 60% persistence) are
   PROVISIONAL placeholders. Label them as such. Do not treat them as validated.
 - Do not build regime filter, intraday trading engine, or Telegram alerts in v0. (collector.py data collection is allowed.)
