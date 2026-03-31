@@ -555,6 +555,30 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
+              <div class="task-text">Pull and log DSM (Daily Summary Message) releases</div>
+              <div class="task-note">The DSM is an automated NWS product that publishes running high/low temps for KNYC during the day. URL: <code>https://forecast.weather.gov/product.php?site=NWS&amp;issuedby=NYC&amp;product=DSM</code><br><br>The DSM updates at specific times (roughly 20:21Z, 21:21Z, 05:17Z for NYC) and whenever a new daily high is set. It is the fastest public source for the current running high temperature.<br><br>Collector should:<br>1. Fetch the DSM page at each 30-minute collection cycle<br>2. Parse the current high temperature and issuance timestamp<br>3. Store in a separate table: <code>dsm_observations</code><br>&nbsp;&nbsp;&nbsp;Fields: <code>fetch_ts</code>, <code>issuance_ts</code>, <code>event_date</code>, <code>running_high_f</code>, <code>raw_text</code><br>4. When the running_high_f changes from the previous fetch, flag it -- this is a market-moving event<br><br>This is NOT a model input. It is logged for information timing analysis: how fast does the market reprice after a DSM shows a new high?<br><br>Implementation note: the DSM page returns plain text. Parse the high temperature value from the body. If the page returns an error or is not yet issued for today, skip silently and try again next cycle.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Pull and log preliminary CLI releases during the day</div>
+              <div class="task-note">The NWS CLI for NYC can publish preliminary versions during the afternoon/evening before the final version the next morning. URL: <code>https://forecast.weather.gov/product.php?site=OKX&amp;product=CLI&amp;issuedby=NYC</code><br><br>The preliminary CLI high temperature is almost never revised upward in the final report. A preliminary CLI at 4:30pm effectively locks in the settlement value.<br><br>Collector should:<br>1. Fetch the CLI page at each 30-minute collection cycle<br>2. Parse the issuance timestamp and high temperature if present<br>3. Store in a separate table: <code>cli_observations</code><br>&nbsp;&nbsp;&nbsp;Fields: <code>fetch_ts</code>, <code>issuance_ts</code>, <code>event_date</code>, <code>cli_high_f</code>, <code>is_preliminary</code> (boolean), <code>raw_text</code><br>4. When a CLI high is first detected for today's event_date, flag it<br><br>The final CLI (<code>is_preliminary=false</code>, typically issued next morning) is what the backfill function uses for <code>actual_max_f</code> and <code>outcome</code>. Preliminary CLIs are logged for analysis only.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Update backfill to prefer CLI over Iowa State Mesonet</div>
+              <div class="task-note">The backfill function (<code>logger.py backfill_outcome</code>) should first check the <code>cli_observations</code> table for a final CLI entry for the <code>event_date</code>. If found, use that value. Only fall back to Iowa State Mesonet if no CLI row exists. The CLI is the actual settlement source -- using it directly eliminates any discrepancy between the backfill value and what Kalshi settles on.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
               <div class="task-text">Create collector.sh wrapper script</div>
               <div class="task-note">Shell script that activates the Python environment, runs collector.py, and logs stdout/stderr to a rotating log file. Captures exit code. Example:<br><br><code>#!/usr/bin/env bash<br>set -euo pipefail<br>cd /home/&lt;user&gt;/nyc-temp-model<br>source .venv/bin/activate<br>python collector.py &gt;&gt; logs/collector.log 2&gt;&amp;1</code><br><br>The wrapper keeps cron jobs simple and ensures the right Python environment is always used.</div>
             </div>
@@ -572,7 +596,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Configure cron schedule on VM</div>
-              <div class="task-note"><strong>Configured.</strong> Collector cadence is live on VM. Morning model remains manual in v0 and is intentionally not cron-scheduled while run quality is being verified.</div>
+              <div class="task-note"><strong>Configured.</strong> Collector cadence is live on VM. Morning model remains manual in v0 and is intentionally not cron-scheduled while run quality is being verified.<br><br>Alternative real-time source: NWS KNYC time series at <code>https://www.weather.gov/wrh/timeseries?site=knyc</code> provides the same METAR data in a different format. Use the Iowa State Mesonet endpoint for programmatic access (already proven in calibration.py). The NWS time series page is useful for manual monitoring but harder to parse.</div>
             </div>
           </div>
 
@@ -652,6 +676,20 @@ section { margin-bottom: 8px }
             <div class="task-body">
               <div class="task-text">V0 gate decision: evaluate success criteria before deciding</div>
               <div class="task-note">Decision uses the Hypothesis tab success criteria: calibration sanity, repeatable directional mispricing pattern, and after-cost economic meaning. Diagnose failure mode before concluding "no edge."</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Create a dedicated VM for the weather app (v0 operations)</div>
+              <div class="task-note">Stand up a separate VM that runs only the weather app workflows for v0 (collector/backfill/status scripts), isolated from the research/dev machine. Keep deployment simple: manual git pull + cron + log files.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Send daily Telegram updates from the weather app and include Vinay as an interactive recipient</div>
+              <div class="task-note">Add a daily v0 Telegram summary (morning model snapshot, backfill status, and key alerts). Vinay should be added as a recipient and able to interact with the bot workflow (basic commands/replies for status checks and acknowledgements).</div>
             </div>
           </div>
         </div>
@@ -842,6 +880,11 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-31 — DSM and CLI monitoring added to collector for information timing analysis</div></div>
+        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Preliminary CLI effectively locks in the high. Logged in <code>cli_observations</code> table. Final CLI used for outcome backfill.<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-30 — Outcome backfill built as separate CLI entry point in logger.py</div></div>
         <div class="dec-why">The original logger.py only writes snapshots -- it does not backfill actual outcomes. Without backfill, v0 produces 30 days of model_prob and market_price data with no way to evaluate accuracy. Backfill is implemented as a CLI entry point in logger.py that pulls the NWS CLI actual max for KNYC from Iowa State Mesonet and updates all bracket_snapshots rows for that event_date with actual_max_f and outcome. Supports manual override (--actual-max) if the automated pull fails. Added to VM cron at 8am ET daily. A missing-backfill check query should be run weekly to catch any gaps.</div>
       </div>
@@ -923,6 +966,15 @@ section { margin-bottom: 8px }
       <div class="panel-lead">Add questions before making assumptions in code. H = blocks the build. M = resolve before v1. L = deferrable.</div>
 
       <div class="sec">Resolved</div>
+      <div class="card">
+        <div class="oq">
+          <span class="oq-p r">OK</span>
+          <div>
+            <div class="oq-q">What NWS data products do market bots react to?</div>
+            <div class="oq-ctx">Resolved (research, 2026-03-30). Five bot types identified: DSM bot (Daily Summary Message releases), OMO bot (one-minute ASOS data via phone), 6-hour bot (6-hourly max temps at 00/06/12/18Z), CLI bot (Climate Report releases), and market-maker bot (spread capture). For v0, collector monitors DSM and CLI releases as market-moving event timestamps. OMO and 6-hour data are not captured in v0 due to access complexity.</div>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <div class="oq">
           <span class="oq-p r">OK</span>
