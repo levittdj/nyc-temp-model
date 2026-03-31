@@ -331,12 +331,10 @@ section { margin-bottom: 8px }
 
       <div class="note green"><strong>Progress (2026-03-30):</strong> v0 is operational end-to-end: model generation, intraday collection, SQLite logging, and outcome backfill are implemented. VM cron infrastructure is in place; latest fix ensures KNYC backfill falls through to ASOS hourly max when daily CLI endpoint data is unavailable. Current focus is daily run discipline, missed-backfill monitoring, and evidence collection.</div>
 
-      <div class="note blue"><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a></div>
-
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
         <span class="ver-tag v0">V0</span>
-        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.</div>
+        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a></div>
       </div>
 
       <div class="sec">What comes next if v0 shows signal</div>
@@ -345,12 +343,6 @@ section { margin-bottom: 8px }
         <div class="ver-label"><strong>Automation (optional).</strong> Only pursued if v0 shows a repeatable, economically meaningful edge.</div>
       </div>
 
-      <div class="sec">How to use this doc</div>
-      <div class="cbody" style="font-size:13px;color:var(--text2);line-height:1.7">
-        <strong style="color:var(--text)">Before every Claude session:</strong> open Build tab, find current task, paste the relevant spec section with the file you want to build.<br><br>
-        <strong style="color:var(--text)">When a design decision is made:</strong> add it to Decisions tab before writing code. Date it.<br><br>
-        <strong style="color:var(--text)">When v0 data comes in:</strong> update Hypothesis tab. That data determines whether v1 gets built.
-      </div>
     </div>
   </div>
 </div>
