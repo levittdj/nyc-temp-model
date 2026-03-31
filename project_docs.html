@@ -329,14 +329,14 @@ section { margin-bottom: 8px }
 
       <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
 
-      <div class="note green"><strong>Progress (2026-03-30):</strong> v0 is operational end-to-end: we can generate model probabilities, capture market prices, log snapshots to SQLite, and backfill outcomes after settlement. The remaining work is operational discipline: run it daily, keep backfills current, and review results in Datasette.</div>
+      <div class="note green"><strong>Progress (2026-03-30):</strong> v0 is operational end-to-end: model generation, intraday collection, SQLite logging, and outcome backfill are implemented. VM cron infrastructure is in place; latest fix ensures KNYC backfill falls through to ASOS hourly max when daily CLI endpoint data is unavailable. Current focus is daily run discipline, missed-backfill monitoring, and evidence collection.</div>
 
-      <div class="note blue"><strong>Quick links:</strong> <a href="#hypotheses" style="color:var(--blue2);text-decoration:none">Hypotheses and success criteria</a></div>
+      <div class="note blue"><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a></div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
         <span class="ver-tag v0">V0</span>
-        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.</div>
+        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.</div>
       </div>
 
       <div class="sec">What comes next if v0 shows signal</div>
@@ -493,17 +493,17 @@ section { margin-bottom: 8px }
         </div>
         <div class="phase-tasks">
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Backfill function: pull NWS CLI actual max and update outcome</div>
-              <div class="task-note">logger.py <code>backfill_outcome()</code> updates all <code>bracket_snapshots</code> rows for an <code>event_date</code> with <code>actual_max_f</code> and <code>outcome</code> (1 for the winning bracket, 0 for all others). Can be run manually (<code>python logger.py 2026-03-30</code>) or via cron. Without this, v0 evaluation is impossible -- no Brier score, no P&amp;L, no permutation test.</div>
+              <div class="task-text done">Backfill function: pull NWS CLI actual max and update outcome</div>
+              <div class="task-note"><strong>Implemented:</strong> logger.py <code>backfill_outcome()</code> updates all <code>bracket_snapshots</code> rows for an <code>event_date</code> with <code>actual_max_f</code> and <code>outcome</code> (1 for the winning bracket, 0 for all others). Includes CLI entrypoint and manual override (<code>--actual-max</code>).</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Add backfill to daily cron on VM</div>
-              <div class="task-note">Run once per day at 8am ET (after CLI is typically published):<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python logger.py</code><br><br>This backfills yesterday&apos;s <code>event_date</code> automatically. If CLI is not yet available, the script errors loudly and can be re-run manually. Also add a check: query for event_dates older than 2 days that still have <code>outcome</code>=NULL. These are missed backfills that need manual attention.</div>
+              <div class="task-text done">Add backfill to daily cron on VM</div>
+              <div class="task-note"><strong>Configured on VM.</strong> Use Python 3 explicitly:<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python3 logger.py &gt;&gt; logs/backfill.log 2&gt;&amp;1</code><br><br>Defaults to yesterday&apos;s <code>event_date</code>. If CLI data is unavailable, logger now falls back to ASOS hourly max for past dates. Keep a missed-backfill check for <code>outcome IS NULL</code> on older event dates.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -514,10 +514,10 @@ section { margin-bottom: 8px }
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">NWS CLI pull at 6am -- verified actual max</div>
-              <div class="task-note">Backfill previous day: <code>actual_max_f</code>, per-bracket <code>outcome</code> (1/0), and any NULL day fields as needed.</div>
+              <div class="task-text done">NWS CLI pull at 6am -- verified actual max</div>
+              <div class="task-note"><strong>Implemented with fallback:</strong> daily CLI endpoint is attempted first; for KNYC gaps/unavailable responses, ASOS hourly <code>tmpf</code> fallback computes the verified daily max. Backfill remains idempotent and safe to re-run.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -577,10 +577,10 @@ section { margin-bottom: 8px }
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Configure cron schedule on VM</div>
-              <div class="task-note">Two cron entries:<br><br><code># Kalshi prices + model_prob recompute (every 30 min, 6am-midnight ET)<br>*/30 6-23 * * * /home/&lt;user&gt;/nyc-temp-model/collector.sh<br><br># METAR + HRRR observational data (hourly, 6am-midnight ET)<br>0 6-23 * * * /home/&lt;user&gt;/nyc-temp-model/obs_collector.sh</code><br><br>Time window 6am-midnight ET covers market open through late settlement. Adjust for UTC offset on the VM (if VM is UTC, 6am ET = 10:00 or 11:00 UTC depending on DST).<br><br>Morning model runs separately -- NOT via cron in v0. Continue running morning_model.py manually at 7am from a local terminal.</div>
+              <div class="task-text done">Configure cron schedule on VM</div>
+              <div class="task-note"><strong>Configured.</strong> Collector cadence is live on VM. Morning model remains manual in v0 and is intentionally not cron-scheduled while run quality is being verified.</div>
             </div>
           </div>
 
@@ -651,15 +651,15 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
-              <div class="task-text">Run all five baseline comparisons. Does the model beat them?</div>
+              <div class="task-text">Run baseline comparisons. Does the model beat them?</div>
               <div class="task-note">See Hypothesis tab for baseline definitions</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
-              <div class="task-text">V0 gate decision: evaluate all three layers before deciding</div>
-              <div class="task-note">Layer 1 (model calibration) -- Layer 2 (market mispricing) -- Layer 3 (economic tradeability). Diagnose which layer failed before concluding "no edge." See Hypothesis tab for predeclared metrics and noise test.</div>
+              <div class="task-text">V0 gate decision: evaluate success criteria before deciding</div>
+              <div class="task-note">Decision uses the Hypothesis tab success criteria: calibration sanity, repeatable directional mispricing pattern, and after-cost economic meaning. Diagnose failure mode before concluding "no edge."</div>
             </div>
           </div>
         </div>
