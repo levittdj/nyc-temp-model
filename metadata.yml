@@ -69,3 +69,17 @@ databases:
         WHERE snapshot_type = 'morning'
           AND outcome IS NOT NULL
         GROUP BY price_bucket
+
+      todays_temp_trajectory: |-
+        SELECT observation_ts, tmpf, wind_dir_deg, wind_speed_kt, sky_cover
+        FROM metar_observations
+        WHERE observation_ts >= date('now', '-1 day')
+        ORDER BY observation_ts
+
+      peak_temp_by_date: |-
+        SELECT date(observation_ts) as obs_date,
+               MAX(tmpf) as metar_max_f,
+               observation_ts as peak_time
+        FROM metar_observations
+        GROUP BY obs_date
+        ORDER BY obs_date DESC

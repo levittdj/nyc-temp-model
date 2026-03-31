@@ -70,6 +70,34 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
 
     PRIMARY KEY (event_date, snapshot_ts, snapshot_type, bracket_label)
 );
+
+CREATE TABLE IF NOT EXISTS dsm_observations (
+    fetch_ts TEXT NOT NULL,
+    issuance_ts TEXT,
+    event_date TEXT NOT NULL,
+    running_high_f REAL NOT NULL,
+    raw_text TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cli_observations (
+    fetch_ts TEXT NOT NULL,
+    issuance_ts TEXT,
+    event_date TEXT NOT NULL,
+    cli_high_f REAL NOT NULL,
+    is_preliminary INTEGER NOT NULL,
+    raw_text TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS metar_observations (
+    observation_ts TEXT NOT NULL,
+    station TEXT NOT NULL DEFAULT 'KNYC',
+    tmpf REAL,
+    wind_dir_deg INTEGER,
+    wind_speed_kt INTEGER,
+    sky_cover TEXT,
+    fetch_ts TEXT NOT NULL,
+    PRIMARY KEY (observation_ts, station)
+);
 """
 
 
@@ -123,6 +151,227 @@ def _wind_sky_from_nws(ctx: Dict[str, Any]) -> Tuple[Optional[str], Optional[str
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     conn.commit()
+
+
+def log_dsm_observation(
+    db_path: Path,
+    fetch_ts_utc: datetime,
+    issuance_ts_utc: Optional[datetime],
+    event_date: date,
+    running_high_f: float,
+    raw_text: str,
+) -> bool:
+    """
+    Insert one DSM observation row.
+    Returns True when running_high_f changed versus the prior row for event_date.
+    """
+    if fetch_ts_utc.tzinfo is None:
+        fetch_ts_utc = fetch_ts_utc.replace(tzinfo=timezone.utc)
+    fetch_s = _utc_z(fetch_ts_utc)
+    issuance_s = _utc_z(issuance_ts_utc) if issuance_ts_utc is not None else None
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        prev = conn.execute(
+            """
+            SELECT running_high_f
+            FROM dsm_observations
+            WHERE event_date = ?
+            ORDER BY fetch_ts DESC
+            LIMIT 1
+            """,
+            (event_date.isoformat(),),
+        ).fetchone()
+        prev_high = float(prev[0]) if prev and prev[0] is not None else None
+        changed = (prev_high is not None) and (float(running_high_f) != prev_high)
+        conn.execute(
+            """
+            INSERT INTO dsm_observations (
+                fetch_ts, issuance_ts, event_date, running_high_f, raw_text
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                fetch_s,
+                issuance_s,
+                event_date.isoformat(),
+                float(running_high_f),
+                str(raw_text),
+            ),
+        )
+        conn.commit()
+        return changed
+    finally:
+        conn.close()
+
+
+def log_cli_observation(
+    db_path: Path,
+    fetch_ts_utc: datetime,
+    issuance_ts_utc: Optional[datetime],
+    event_date: date,
+    cli_high_f: float,
+    is_preliminary: bool,
+    raw_text: str,
+) -> bool:
+    """
+    Insert one CLI observation row.
+    Returns True when this is the first detected CLI high for event_date.
+    """
+    if fetch_ts_utc.tzinfo is None:
+        fetch_ts_utc = fetch_ts_utc.replace(tzinfo=timezone.utc)
+    fetch_s = _utc_z(fetch_ts_utc)
+    issuance_s = _utc_z(issuance_ts_utc) if issuance_ts_utc is not None else None
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        prev_cnt = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM cli_observations
+            WHERE event_date = ?
+            """,
+            (event_date.isoformat(),),
+        ).fetchone()
+        first_detected = int(prev_cnt[0]) == 0 if prev_cnt else True
+        conn.execute(
+            """
+            INSERT INTO cli_observations (
+                fetch_ts, issuance_ts, event_date, cli_high_f, is_preliminary, raw_text
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                fetch_s,
+                issuance_s,
+                event_date.isoformat(),
+                float(cli_high_f),
+                1 if is_preliminary else 0,
+                str(raw_text),
+            ),
+        )
+        conn.commit()
+        return first_detected
+    finally:
+        conn.close()
+
+
+def latest_cli_observed_high(
+    db_path: Path,
+    event_date: date,
+    final_only: bool = True,
+) -> Optional[float]:
+    """Return latest CLI high for event_date from cli_observations, if any."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        if final_only:
+            row = conn.execute(
+                """
+                SELECT cli_high_f
+                FROM cli_observations
+                WHERE event_date = ?
+                  AND is_preliminary = 0
+                ORDER BY COALESCE(issuance_ts, fetch_ts) DESC, fetch_ts DESC
+                LIMIT 1
+                """,
+                (event_date.isoformat(),),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT cli_high_f
+                FROM cli_observations
+                WHERE event_date = ?
+                ORDER BY COALESCE(issuance_ts, fetch_ts) DESC, fetch_ts DESC
+                LIMIT 1
+                """,
+                (event_date.isoformat(),),
+            ).fetchone()
+        return float(row[0]) if row and row[0] is not None else None
+    finally:
+        conn.close()
+
+
+def latest_metar_observation_ts_utc(
+    db_path: Path,
+    day_utc: date,
+    station: str = "KNYC",
+) -> Optional[datetime]:
+    """Return latest observation_ts for station on day_utc (UTC date)."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        row = conn.execute(
+            """
+            SELECT MAX(observation_ts)
+            FROM metar_observations
+            WHERE station = ?
+              AND date(observation_ts) = ?
+            """,
+            (station, day_utc.isoformat()),
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        ts = datetime.fromisoformat(str(row[0]).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+    finally:
+        conn.close()
+
+
+def log_metar_observations(
+    db_path: Path,
+    observations: List[Dict[str, Any]],
+    fetch_ts_utc: datetime,
+    station: str = "KNYC",
+) -> int:
+    """
+    Insert/ignore METAR observations.
+    observations items expect keys:
+      observation_ts (datetime), tmpf (Optional[float]), wind_dir_deg (Optional[int]),
+      wind_speed_kt (Optional[int]), sky_cover (Optional[str])
+    Returns number of rows inserted.
+    """
+    if fetch_ts_utc.tzinfo is None:
+        fetch_ts_utc = fetch_ts_utc.replace(tzinfo=timezone.utc)
+    fetch_s = _utc_z(fetch_ts_utc)
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        before = conn.total_changes
+        for ob in observations:
+            obs_ts = ob.get("observation_ts")
+            if not isinstance(obs_ts, datetime):
+                continue
+            if obs_ts.tzinfo is None:
+                obs_ts = obs_ts.replace(tzinfo=timezone.utc)
+            obs_s = _utc_z(obs_ts)
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO metar_observations (
+                    observation_ts, station, tmpf, wind_dir_deg, wind_speed_kt, sky_cover, fetch_ts
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    obs_s,
+                    station,
+                    ob.get("tmpf"),
+                    ob.get("wind_dir_deg"),
+                    ob.get("wind_speed_kt"),
+                    ob.get("sky_cover"),
+                    fetch_s,
+                ),
+            )
+        conn.commit()
+        return int(conn.total_changes - before)
+    finally:
+        conn.close()
 
 
 def _utc_z(ts: datetime) -> str:
@@ -549,13 +798,20 @@ if __name__ == "__main__":
         actual = args.actual_max
         print(f"Using manually specified actual_max_f: {actual}")
     else:
-        print(f"Fetching NWS CLI actual max for KNYC on {target}...")
-        try:
-            actual = fetch_knyc_cli_max(target)
-        except RuntimeError as e:
-            print(str(e), file=sys.stderr)
-            raise SystemExit(2)
-        print(f"NWS CLI actual_max_f: {actual}")
+        actual_from_cli_table = latest_cli_observed_high(args.db, target, final_only=True)
+        if actual_from_cli_table is not None:
+            actual = actual_from_cli_table
+            print(
+                f"Using final CLI from cli_observations for {target}: {actual}"
+            )
+        else:
+            print(f"Fetching NWS CLI actual max for KNYC on {target} (Mesonet fallback path)...")
+            try:
+                actual = fetch_knyc_cli_max(target)
+            except RuntimeError as e:
+                print(str(e), file=sys.stderr)
+                raise SystemExit(2)
+            print(f"NWS CLI actual_max_f: {actual}")
 
     n = backfill_outcome(args.db, target, actual)
     print(f"Updated {n} rows for event_date={target}")

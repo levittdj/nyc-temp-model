@@ -571,6 +571,14 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
+              <div class="task-text">KNYC METAR 5-minute observation capture (via 30-min backfill)</div>
+              <div class="task-note">At each 30-minute collector run, pull all KNYC METAR observations since the last pull from Iowa State Mesonet. Stores every 5-minute observation in <code>metar_observations</code> table. Uses INSERT OR IGNORE to handle overlapping pulls. Captures <code>tmpf</code>, <code>wind_dir</code>, <code>wind_speed</code>, <code>sky_cover</code>.<br><br>This provides the full intraday temperature trajectory at 5-minute resolution -- the core data needed for:<br>- v1 sinusoidal path analysis (expected vs observed temp curve)<br>- Edge decay decomposition (market moved because temp moved vs market moved because forecast updated)<br>- Regime analysis (wind shifts, cloud breaks during the day)<br><br>Does not increase collection frequency beyond existing 30-min cron. Single HTTP request per cycle covers the full gap since last pull.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
               <div class="task-text">Update backfill to prefer CLI over Iowa State Mesonet</div>
               <div class="task-note">The backfill function (<code>logger.py backfill_outcome</code>) should first check the <code>cli_observations</code> table for a final CLI entry for the <code>event_date</code>. If found, use that value. Only fall back to Iowa State Mesonet if no CLI row exists. The CLI is the actual settlement source -- using it directly eliminates any discrepancy between the backfill value and what Kalshi settles on.</div>
             </div>
@@ -882,6 +890,11 @@ section { margin-bottom: 8px }
       <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-31 — DSM and CLI monitoring added to collector for information timing analysis</div></div>
         <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Preliminary CLI effectively locks in the high. Logged in <code>cli_observations</code> table. Final CLI used for outcome backfill.<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-03-31 — METAR collection upgraded from hourly summary to 5-minute backfill</div></div>
+        <div class="dec-why">Original spec pulled hourly METAR observations. Changed to capture full 5-minute resolution by backfilling all observations since last pull at each 30-minute collector cycle. Same Iowa State Mesonet endpoint as calibration.py. INSERT OR IGNORE prevents duplicates. The 5-minute trajectory is the foundational dataset for v1 intraday analysis -- collecting it now at zero additional infrastructure cost avoids needing to re-collect later. Stored in separate <code>metar_observations</code> table, not in <code>bracket_snapshots</code>.</div>
       </div>
 
       <div class="dec">
