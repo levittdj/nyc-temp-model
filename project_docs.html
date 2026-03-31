@@ -553,34 +553,34 @@ section { margin-bottom: 8px }
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Pull and log DSM (Daily Summary Message) releases</div>
-              <div class="task-note">The DSM is an automated NWS product that publishes running high/low temps for KNYC during the day. URL: <code>https://forecast.weather.gov/product.php?site=NWS&amp;issuedby=NYC&amp;product=DSM</code><br><br>The DSM updates at specific times (roughly 20:21Z, 21:21Z, 05:17Z for NYC) and whenever a new daily high is set. It is the fastest public source for the current running high temperature.<br><br>Collector should:<br>1. Fetch the DSM page at each 30-minute collection cycle<br>2. Parse the current high temperature and issuance timestamp<br>3. Store in a separate table: <code>dsm_observations</code><br>&nbsp;&nbsp;&nbsp;Fields: <code>fetch_ts</code>, <code>issuance_ts</code>, <code>event_date</code>, <code>running_high_f</code>, <code>raw_text</code><br>4. When the running_high_f changes from the previous fetch, flag it -- this is a market-moving event<br><br>This is NOT a model input. It is logged for information timing analysis: how fast does the market reprice after a DSM shows a new high?<br><br>Implementation note: the DSM page returns plain text. Parse the high temperature value from the body. If the page returns an error or is not yet issued for today, skip silently and try again next cycle.</div>
+              <div class="task-text done">Pull and log DSM (Daily Summary Message) releases</div>
+              <div class="task-note"><strong>Implemented:</strong> collector fetches DSM each 30-minute cycle, parses issuance + running high, and writes to <code>dsm_observations</code> (<code>fetch_ts</code>, <code>issuance_ts</code>, <code>event_date</code>, <code>running_high_f</code>, <code>raw_text</code>). Running-high changes are flagged in collector output for information-timing analysis.</div>
             </div>
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Pull and log preliminary CLI releases during the day</div>
-              <div class="task-note">The NWS CLI for NYC can publish preliminary versions during the afternoon/evening before the final version the next morning. URL: <code>https://forecast.weather.gov/product.php?site=OKX&amp;product=CLI&amp;issuedby=NYC</code><br><br>The preliminary CLI high temperature is almost never revised upward in the final report. A preliminary CLI at 4:30pm effectively locks in the settlement value.<br><br>Collector should:<br>1. Fetch the CLI page at each 30-minute collection cycle<br>2. Parse the issuance timestamp and high temperature if present<br>3. Store in a separate table: <code>cli_observations</code><br>&nbsp;&nbsp;&nbsp;Fields: <code>fetch_ts</code>, <code>issuance_ts</code>, <code>event_date</code>, <code>cli_high_f</code>, <code>is_preliminary</code> (boolean), <code>raw_text</code><br>4. When a CLI high is first detected for today's event_date, flag it<br><br>The final CLI (<code>is_preliminary=false</code>, typically issued next morning) is what the backfill function uses for <code>actual_max_f</code> and <code>outcome</code>. Preliminary CLIs are logged for analysis only.</div>
+              <div class="task-text done">Pull and log preliminary CLI releases during the day</div>
+              <div class="task-note"><strong>Implemented:</strong> collector fetches CLI each 30-minute cycle, parses issuance/high/preliminary status, and writes to <code>cli_observations</code> (<code>fetch_ts</code>, <code>issuance_ts</code>, <code>event_date</code>, <code>cli_high_f</code>, <code>is_preliminary</code>, <code>raw_text</code>). First high detected for today is flagged in collector output.</div>
             </div>
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">KNYC METAR 5-minute observation capture (via 30-min backfill)</div>
-              <div class="task-note">At each 30-minute collector run, pull all KNYC METAR observations since the last pull from Iowa State Mesonet. Stores every 5-minute observation in <code>metar_observations</code> table. Uses INSERT OR IGNORE to handle overlapping pulls. Captures <code>tmpf</code>, <code>wind_dir</code>, <code>wind_speed</code>, <code>sky_cover</code>.<br><br>This provides the full intraday temperature trajectory at 5-minute resolution -- the core data needed for:<br>- v1 sinusoidal path analysis (expected vs observed temp curve)<br>- Edge decay decomposition (market moved because temp moved vs market moved because forecast updated)<br>- Regime analysis (wind shifts, cloud breaks during the day)<br><br>Does not increase collection frequency beyond existing 30-min cron. Single HTTP request per cycle covers the full gap since last pull.</div>
+              <div class="task-text done">KNYC METAR 5-minute observation capture (via 30-min backfill)</div>
+              <div class="task-note"><strong>Implemented:</strong> collector backfills all KNYC METAR rows since last pull at each 30-minute run using Iowa State Mesonet and writes to <code>metar_observations</code> with <code>INSERT OR IGNORE</code>. Captures <code>tmpf</code>, <code>wind_dir_deg</code>, <code>wind_speed_kt</code>, and <code>sky_cover</code> at 5-minute resolution.</div>
             </div>
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Update backfill to prefer CLI over Iowa State Mesonet</div>
-              <div class="task-note">The backfill function (<code>logger.py backfill_outcome</code>) should first check the <code>cli_observations</code> table for a final CLI entry for the <code>event_date</code>. If found, use that value. Only fall back to Iowa State Mesonet if no CLI row exists. The CLI is the actual settlement source -- using it directly eliminates any discrepancy between the backfill value and what Kalshi settles on.</div>
+              <div class="task-text done">Update backfill to prefer CLI over Iowa State Mesonet</div>
+              <div class="task-note"><strong>Implemented:</strong> logger backfill now checks <code>cli_observations</code> for final CLI rows first and uses that value for <code>actual_max_f</code>/<code>outcome</code>; Iowa State Mesonet remains fallback when no final CLI row exists.</div>
             </div>
           </div>
 
@@ -609,26 +609,26 @@ section { margin-bottom: 8px }
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Install and run Datasette on VM for data review</div>
-              <div class="task-note">pip install datasette on the VM. Run as a background process:<br><br><code>datasette nyc_temp_log.sqlite --host 0.0.0.0 --port 8001 &amp;</code><br><br>Or use a systemd service for persistence across reboots. Accessible at http://&lt;vm-ip&gt;:8001. Read-only -- does not interfere with collector writes. No authentication by default -- if the VM is internet-facing, add <code>--setting default_allow_sql false</code> or put behind a simple reverse proxy with basic auth.</div>
+              <div class="task-text done">Install and run Datasette on VM for data review</div>
+              <div class="task-note"><strong>Implemented:</strong> Datasette is running on the VM and serving the project database for live review. Access is available at the configured VM URL, and read-only usage is maintained for operational safety.</div>
             </div>
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Create canned queries metadata file for Datasette</div>
-              <div class="task-note">Create a <code>metadata.yml</code> file with saved SQL queries that appear as links in the Datasette UI. Starter queries: latest_morning_snapshot, edge_summary_by_date, missing_backfills, edge_by_bracket_position, intraday_edge_decay, flb_test. Run Datasette with:<br><br><code>datasette nyc_temp_log.sqlite --metadata metadata.yml</code></div>
+              <div class="task-text done">Create canned queries metadata file for Datasette</div>
+              <div class="task-note"><strong>Implemented:</strong> <code>metadata.yml</code> is live with saved queries, including <code>latest_morning_snapshot</code>, <code>edge_summary_by_date</code>, <code>missing_backfills</code>, <code>edge_by_bracket_position</code>, <code>intraday_edge_decay</code>, <code>flb_test</code>, <code>todays_temp_trajectory</code>, and <code>peak_temp_by_date</code>.</div>
             </div>
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Git pull strategy for VM</div>
-              <div class="task-note">The VM runs code from a git clone of the repo. When pushing fixes from the dev machine, SSH into the VM and run git pull before the next collection cycle. Do NOT set up automatic git pull -- you want to control when new code goes live on the collector. For v0, manual git pull after testing locally is the right workflow.</div>
+              <div class="task-text done">Git pull strategy for VM</div>
+              <div class="task-note"><strong>Implemented:</strong> VM updates use manual <code>git pull</code> after local testing and push. Auto-pull is intentionally not used so deployment timing stays under operator control.</div>
             </div>
           </div>
 
@@ -641,10 +641,10 @@ section { margin-bottom: 8px }
           </div>
 
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Verify cron is producing data after first 24 hours</div>
-              <div class="task-note">After deploying, wait 24 hours, then query the SQLite database:<br><br><code>SELECT event_date, COUNT(DISTINCT snapshot_ts) as snapshots,<br>       MIN(snapshot_ts) as first, MAX(snapshot_ts) as last<br>FROM bracket_snapshots<br>WHERE snapshot_type = 'intraday'<br>GROUP BY event_date;</code><br><br>Should show ~36 snapshots per event_date (every 30 min from 6am to midnight ET; depends on cron window). If significantly fewer, check logs/collector.log for errors. Common issues: wrong Python path in wrapper, missing Python deps on VM, NOMADS transient errors.</div>
+              <div class="task-text done">Verify cron is producing data after first 24 hours</div>
+              <div class="task-note"><strong>Verified:</strong> intraday snapshots are continuously present in the live database with expected cadence. Continue periodic health checks via <code>logs/collector.log</code> and heartbeat monitoring.</div>
             </div>
           </div>
         </div>
