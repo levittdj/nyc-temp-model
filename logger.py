@@ -387,25 +387,29 @@ def fetch_knyc_cli_max(target_date: date) -> float:
     DAILY_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py"
     station = "KNYC"
     network = "NY_ASOS"
-    params = {
-        "station": station,
-        "network": network,
-        "year": target_date.year,
-        "month": target_date.month,
-        "day": target_date.day,
-        "format": "csv",
-    }
-    url = f"{DAILY_URL}?{urlencode(params)}"
-    req = Request(url, headers={"User-Agent": "(nyc-temp-model, local)"})
+    daily_error: Optional[str] = None
+    rows: List[Dict[str, str]] = []
+    daily_keys: List[str] = []
     try:
+        params = {
+            "station": station,
+            "network": network,
+            "year": target_date.year,
+            "month": target_date.month,
+            "day": target_date.day,
+            "format": "csv",
+        }
+        url = f"{DAILY_URL}?{urlencode(params)}"
+        req = Request(url, headers={"User-Agent": "(nyc-temp-model, local)"})
         with urlopen(req, timeout=60) as resp:
             text = resp.read().decode("utf-8", errors="replace")
+        buf = io.StringIO(text)
+        reader = csv.DictReader(buf)
+        rows = list(reader)
+        daily_keys = list(rows[0].keys()) if rows else []
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch NWS daily climate report for {target_date}: {e}") from e
-
-    buf = io.StringIO(text)
-    reader = csv.DictReader(buf)
-    rows = list(reader)
+        # Do not fail hard here: KNYC daily endpoint may be missing/empty.
+        daily_error = str(e)
 
     def _pick_max_key(keys: List[str]) -> Optional[str]:
         # Common IEM daily fields (vary by endpoint / config). Keep this permissive.
@@ -428,7 +432,7 @@ def fetch_knyc_cli_max(target_date: date) -> float:
         return None
 
     if rows:
-        key = _pick_max_key(list(rows[0].keys()))
+        key = _pick_max_key(daily_keys)
         if key is not None:
             raw = (rows[0].get(key) or "").strip()
             if raw not in ("", "M", "NA", "None", "null"):
@@ -437,9 +441,14 @@ def fetch_knyc_cli_max(target_date: date) -> float:
                 except ValueError:
                     pass
 
-    # If the daily report isn't published yet, try an ASOS-hourly fallback for completed past dates.
-    # This fallback is explicitly *not* silent.
+    # If the daily report isn't published yet or the station/network has no data,
+    # try an ASOS-hourly fallback for completed past dates.
     if target_date >= date.today():
+        if daily_error:
+            raise RuntimeError(
+                f"No daily climate report data available yet for {target_date} ({daily_error}). "
+                "This is common before ~7am ET for yesterday's report; re-run later or use --actual-max."
+            )
         raise RuntimeError(
             f"No daily climate report data available yet for {target_date}. "
             "This is common before ~7am ET for yesterday's report; re-run later or use --actual-max."
@@ -481,12 +490,24 @@ def fetch_knyc_cli_max(target_date: date) -> float:
         if not vals:
             raise RuntimeError("ASOS hourly fallback returned no tmpf values")
         mx = max(vals)
-        print(
-            f"WARNING: daily climate report unavailable; using ASOS hourly max fallback for {target_date}: {mx}",
-            file=sys.stderr,
-        )
+        if daily_error:
+            print(
+                f"WARNING: daily climate report failed ({daily_error}); using ASOS hourly max fallback for "
+                f"{target_date}: {mx}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"WARNING: daily climate report unavailable; using ASOS hourly max fallback for {target_date}: {mx}",
+                file=sys.stderr,
+            )
         return float(mx)
     except Exception as e:
+        if daily_error:
+            raise RuntimeError(
+                f"Daily climate report failed ({daily_error}) and ASOS fallback failed: {e}. "
+                "Re-run later or use --actual-max."
+            ) from e
         raise RuntimeError(
             f"No daily climate report data available for {target_date}, and ASOS fallback failed: {e}. "
             "Re-run later or use --actual-max."
