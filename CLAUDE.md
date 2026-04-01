@@ -15,17 +15,17 @@ However, weather markets may behave differently due to bot activity and
 ensemble model availability. Direction remains an output of v0 data."
 
 ## Current phase
-V0 -- hypothesis instrument. Three files. Paper trade. Manual review.
+V0 -- hypothesis instrument. Three files. Paper trade. Cron-run morning model + manual monitoring.
 Goal: evidence, not profit.
 
 ## Active task
 [UPDATE THIS AT THE END OF EVERY SESSION]
-Phase 0 -- calibration.py + morning_model.py + logger.py + collector.py done. Next: daily paper run + outcome/backfill workflow as needed + dedicated weather-app VM + daily Telegram updates (including Vinay interactive access).
+Phase 0 -- calibration.py + morning_model.py + logger.py + collector.py done. Next: daily cron-run monitoring + paper run workflow + outcome/backfill workflow as needed + dedicated weather-app VM + daily Telegram updates (including Vinay interactive access).
 
 ## Build order (v0 only)
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json
 2. morning_model.py -- NBM p10/p50/p90 + Kalshi prices, zone interpolation, log edge per bracket
-3. logger.py       -- SQLite, 8 fields per bracket-day, manual terminal output
+3. logger.py       -- SQLite, 8 fields per bracket-day, daily terminal output
 4. collector.py    -- intraday snapshots (prices + model_prob); additive analysis infra only
 
 ## Key constraints -- do not violate
@@ -56,7 +56,7 @@ collector.py         -- intraday snapshots + DSM/CLI monitoring tables
 (collector.py also writes to dsm_observations and cli_observations tables for NWS product monitoring)
 records.json         -- all-time KNYC daily records (one-time build)
 
-## VM deployment (collector only)
+## VM deployment (v0 ops)
 - VM runs collector.py via crontab (every 30 min, 6am-midnight ET)
 - morning_model.py runs via crontab at 7am 
 - Database: data/tempmodel.db on the VM
@@ -67,7 +67,7 @@ records.json         -- all-time KNYC daily records (one-time build)
 - Canned queries in metadata.yml -- no SQL needed to review daily output
 - Read-only access to the live SQLite database
 - Code updates: manual git pull on VM after testing locally
-- Do not add morning_model.py to cron until 10+ days of stable manual runs
+- morning_model.py cron runs must be monitored daily for data quality (fresh snapshot, correct snapshot_type, no API-stale output)
 
 ## Source of truth
 project_docs.html    -- strategy, hypothesis, decisions log, build tracker, risk
