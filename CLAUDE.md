@@ -15,7 +15,8 @@ However, weather markets may behave differently due to bot activity and
 ensemble model availability. Direction remains an output of v0 data."
 
 ## Current phase
-V0 -- hypothesis instrument. Three files. Paper trade. Cron-run morning model + manual monitoring.
+V0 -- hypothesis instrument. calibration + morning_model + logger + collector. Paper trade.
+Morning model: **manual** 7am run in v0 (evaluation rows only). Collector: VM cron for intraday data.
 Goal: evidence, not profit.
 
 ## Active task
@@ -25,7 +26,7 @@ Phase 0 -- calibration.py + morning_model.py + logger.py + collector.py done. Ne
 ## Build order (v0 only)
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json
 2. morning_model.py -- NBM p10/p50/p90 + Kalshi prices, zone interpolation, log edge per bracket
-3. logger.py       -- SQLite, 8 fields per bracket-day, daily terminal output
+3. logger.py       -- SQLite bracket_snapshots (event_date + snapshot_ts + snapshot_type + fields); stderr table; invoked from morning_model + collector
 4. collector.py    -- intraday snapshots (prices + model_prob); additive analysis infra only
 
 ## Key constraints -- do not violate
@@ -58,7 +59,7 @@ records.json         -- all-time KNYC daily records (one-time build)
 
 ## VM deployment (v0 ops)
 - VM runs collector.py via crontab (every 30 min, 6am-midnight ET)
-- morning_model.py runs via crontab at 7am 
+- morning_model.py runs **manually** at 7am (local or SSH) in v0 -- do not add to VM cron until 10+ stable manual days
 - Database: data/tempmodel.db on the VM
 - Logs: logs/collector.log on the VM
 - Health check: logs/last_success heartbeat, checked every 2 hours
@@ -67,7 +68,7 @@ records.json         -- all-time KNYC daily records (one-time build)
 - Canned queries in metadata.yml -- no SQL needed to review daily output
 - Read-only access to the live SQLite database
 - Code updates: manual git pull on VM after testing locally
-- morning_model.py cron runs must be monitored daily for data quality (fresh snapshot, correct snapshot_type, no API-stale output)
+- Monitor morning_model runs daily for data quality (fresh snapshot, snapshot_type=morning, no API-stale output)
 
 ## Source of truth
 project_docs.html    -- strategy, hypothesis, decisions log, build tracker, risk
