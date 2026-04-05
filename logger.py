@@ -19,6 +19,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from morning_model import kalshi_settlement_wins
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -540,21 +542,14 @@ def backfill_outcome(
     actual high temperature and computed outcome.
 
     Sets:
-    - actual_max_f = the NWS CLI value for every row with this event_date
-    - outcome = 1 if actual_max_f falls within [bracket_lower_f, bracket_upper_f),
-                0 otherwise
-      For the low tail bracket (bracket_lower_f is NULL): outcome = 1 if
-        actual_max_f < bracket_upper_f
-      For the high tail bracket (bracket_upper_f is NULL): outcome = 1 if
-        actual_max_f >= bracket_lower_f
-      For middle brackets: outcome = 1 if
-        bracket_lower_f <= actual_max_f < bracket_upper_f
+    - actual_max_f on every row with this event_date (from CLI / fallback fetchers)
+    - outcome = 1 for the bracket that wins under Kalshi NHIGH rules, else 0
 
-    Note: brackets use the half-degree continuity correction, so
-    bracket_lower_f=61.5 and bracket_upper_f=63.5 means the bracket
-    covers integer outcomes 62 and 63. Since actual_max_f from the CLI
-    is always an integer, the comparison works correctly with < on the
-    upper bound.
+    Settlement is computed from bracket_label first (CFTC: strict tails, inclusive
+    integer bands), so it stays correct even if legacy rows have uncorrected
+    bracket_lower_f/bracket_upper_f. If the label is unparsable, falls back to
+    half-open checks on stored bounds (low tail: actual < upper; high tail:
+    actual > lower; middle: lower <= actual < upper).
 
     Returns the number of rows updated.
     """
@@ -578,17 +573,21 @@ def backfill_outcome(
 
         outcomes: List[Tuple[str, int]] = []
         for label, lo, hi in brackets:
-            lo_f = float(lo) if lo is not None else None
-            hi_f = float(hi) if hi is not None else None
-            if lo_f is None and hi_f is None:
-                is_win = False
-            elif lo_f is None:
-                is_win = actual_max_f < hi_f  # type: ignore[operator]
-            elif hi_f is None:
-                is_win = actual_max_f >= lo_f
-            else:
-                is_win = (lo_f <= actual_max_f) and (actual_max_f < hi_f)
-            outcomes.append((str(label), 1 if is_win else 0))
+            label_s = str(label)
+            try:
+                is_win = kalshi_settlement_wins(label_s, float(actual_max_f))
+            except ValueError:
+                lo_f = float(lo) if lo is not None else None
+                hi_f = float(hi) if hi is not None else None
+                if lo_f is None and hi_f is None:
+                    is_win = False
+                elif lo_f is None:
+                    is_win = actual_max_f < hi_f  # type: ignore[operator]
+                elif hi_f is None:
+                    is_win = actual_max_f > lo_f
+                else:
+                    is_win = (lo_f <= actual_max_f) and (actual_max_f < hi_f)
+            outcomes.append((label_s, 1 if is_win else 0))
 
         winners = sum(o for _, o in outcomes)
         if winners != 1:
@@ -617,19 +616,17 @@ def backfill_outcome(
 
 def fetch_knyc_cli_max(target_date: date) -> float:
     """
-    Fetch the verified daily maximum temperature (°F) for KNYC from
-    the NWS Daily Climate Report.
-
-    Uses the Iowa State Mesonet CLI archive:
+    Fetch the daily maximum temperature (°F) for KNYC from the IEM
+    Daily Climate Report archive:
     https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py
 
-    Falls back to ASOS hourly max if CLI is not yet available.
+    ASOS hourly max is not the official NWS CLI high and is never used here.
 
-    Raises RuntimeError if no data is available for the target date.
+    Raises RuntimeError if the report is unavailable or returns no usable max.
+    Wait and re-run backfill, or pass --actual-max with the official high.
     """
     import csv
     import io
-    import sys
     from urllib.parse import urlencode
     from urllib.request import Request, urlopen
 
@@ -657,7 +654,6 @@ def fetch_knyc_cli_max(target_date: date) -> float:
         rows = list(reader)
         daily_keys = list(rows[0].keys()) if rows else []
     except Exception as e:
-        # Do not fail hard here: KNYC daily endpoint may be missing/empty.
         daily_error = str(e)
 
     def _pick_max_key(keys: List[str]) -> Optional[str]:
@@ -690,77 +686,26 @@ def fetch_knyc_cli_max(target_date: date) -> float:
                 except ValueError:
                     pass
 
-    # If the daily report isn't published yet or the station/network has no data,
-    # try an ASOS-hourly fallback for completed past dates.
     if target_date >= date.today():
         if daily_error:
             raise RuntimeError(
                 f"No daily climate report data available yet for {target_date} ({daily_error}). "
-                "This is common before ~7am ET for yesterday's report; re-run later or use --actual-max."
+                "Wait and re-run later, or use --actual-max."
             )
         raise RuntimeError(
             f"No daily climate report data available yet for {target_date}. "
-            "This is common before ~7am ET for yesterday's report; re-run later or use --actual-max."
+            "Wait and re-run later, or use --actual-max."
         )
-
-    try:
-        from urllib.error import URLError
-
-        ASOS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
-        tz = ZoneInfo("America/New_York")
-        sts = datetime(target_date.year, target_date.month, target_date.day, 0, 0, tzinfo=tz).astimezone(timezone.utc)
-        ets = sts + timedelta(days=1)
-        p2 = {
-            "station": station,
-            "data": "tmpf",
-            "year1": sts.year,
-            "month1": sts.month,
-            "day1": sts.day,
-            "year2": ets.year,
-            "month2": ets.month,
-            "day2": ets.day,
-            "tz": "UTC",
-            "format": "onlycomma",
-        }
-        url2 = f"{ASOS_URL}?{urlencode(p2)}"
-        req2 = Request(url2, headers={"User-Agent": "(nyc-temp-model, local)"})
-        with urlopen(req2, timeout=60) as resp2:
-            text2 = resp2.read().decode("utf-8", errors="replace")
-        rdr2 = csv.DictReader(io.StringIO(text2))
-        vals: List[float] = []
-        for r in rdr2:
-            v = (r.get("tmpf") or "").strip()
-            if v in ("", "M", "NA"):
-                continue
-            try:
-                vals.append(float(v))
-            except ValueError:
-                continue
-        if not vals:
-            raise RuntimeError("ASOS hourly fallback returned no tmpf values")
-        mx = max(vals)
-        if daily_error:
-            print(
-                f"WARNING: daily climate report failed ({daily_error}); using ASOS hourly max fallback for "
-                f"{target_date}: {mx}",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"WARNING: daily climate report unavailable; using ASOS hourly max fallback for {target_date}: {mx}",
-                file=sys.stderr,
-            )
-        return float(mx)
-    except Exception as e:
-        if daily_error:
-            raise RuntimeError(
-                f"Daily climate report failed ({daily_error}) and ASOS fallback failed: {e}. "
-                "Re-run later or use --actual-max."
-            ) from e
+    if daily_error:
         raise RuntimeError(
-            f"No daily climate report data available for {target_date}, and ASOS fallback failed: {e}. "
-            "Re-run later or use --actual-max."
-        ) from e
+            f"IEM daily climate report request failed for KNYC on {target_date}: {daily_error}. "
+            "Wait and re-run later, or use --actual-max with the official NWS high."
+        )
+    raise RuntimeError(
+        f"No usable daily climate report data for KNYC on {target_date} "
+        "(empty response or missing max field). "
+        "Wait and re-run later, or use --actual-max with the official NWS high."
+    )
 
 
 if __name__ == "__main__":
@@ -798,12 +743,19 @@ if __name__ == "__main__":
         actual = args.actual_max
         print(f"Using manually specified actual_max_f: {actual}")
     else:
-        actual_from_cli_table = latest_cli_observed_high(args.db, target, final_only=True)
-        if actual_from_cli_table is not None:
-            actual = actual_from_cli_table
+        actual_final = latest_cli_observed_high(args.db, target, final_only=True)
+        actual_any = latest_cli_observed_high(args.db, target, final_only=False)
+        if actual_final is not None:
+            actual = actual_final
+            print(f"Using final CLI from cli_observations for {target}: {actual}")
+        elif actual_any is not None:
+            actual = actual_any
             print(
-                f"Using final CLI from cli_observations for {target}: {actual}"
+                f"WARNING: Using preliminary CLI from cli_observations for {target} ({actual} °F). "
+                "Re-run backfill after the final NWS CLI issuance if you need the official high.",
+                file=sys.stderr,
             )
+            print(f"Using preliminary CLI from cli_observations for {target}: {actual}")
         else:
             print(f"Fetching NWS CLI actual max for KNYC on {target} (Mesonet fallback path)...")
             try:

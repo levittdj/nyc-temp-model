@@ -428,6 +428,32 @@ def kalshi_integration_bounds(title: str, ticker: str) -> tuple[str, float, floa
     raise ValueError(f"Cannot parse bracket from title/ticker: {title!r} ({ticker})")
 
 
+def kalshi_settlement_wins(bracket_label: str, actual_max_f: float) -> bool:
+    """
+    True if the official daily high (°F) settles this NHIGH bracket.
+
+    CFTC NHHIGH convention (must match integration semantics in kalshi_integration_bounds):
+    - Tail "greater than X": strictly > X (exactly X does not pay).
+    - Tail "less than X": strictly < X.
+    - Band "A-B": inclusive of both integer endpoints.
+
+    bracket_label is the short form we store (e.g. "78-79", ">79", "<62").
+    """
+    s = bracket_label.strip().replace(" ", "")
+    m_hi = re.fullmatch(r">(\d+)", s)
+    if m_hi:
+        return actual_max_f > float(m_hi.group(1))
+    m_lo = re.fullmatch(r"<(\d+)", s)
+    if m_lo:
+        return actual_max_f < float(m_lo.group(1))
+    m_mid = re.fullmatch(r"(\d+)-(\d+)", s)
+    if m_mid:
+        a, b = int(m_mid.group(1)), int(m_mid.group(2))
+        lo, hi = (a, b) if a <= b else (b, a)
+        return lo <= actual_max_f <= hi
+    raise ValueError(f"Unrecognized bracket_label for settlement: {bracket_label!r}")
+
+
 def kalshi_mid_price(m: dict[str, Any]) -> float:
     """Midpoint of yes bid/ask in [0,1]; fallback last_price_dollars."""
     bid = m.get("yes_bid_dollars")
@@ -591,6 +617,11 @@ def synthetic_self_test() -> None:
     )
     assert len(rows) == 1 and rows[0].ticker.endswith("B59.5")
     assert rows[0].edge == rows[0].model_prob - rows[0].market_price
+    assert kalshi_settlement_wins("78-79", 79.0)
+    assert not kalshi_settlement_wins(">79", 79.0)
+    assert kalshi_settlement_wins(">79", 80.0)
+    assert kalshi_settlement_wins("<62", 61.0)
+    assert not kalshi_settlement_wins("<62", 62.0)
     print("synthetic_self_test: ok")
 
 
