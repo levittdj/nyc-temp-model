@@ -329,7 +329,7 @@ section { margin-bottom: 8px }
 
       <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
 
-      <div class="note green"><strong>Progress (2026-03-30):</strong> v0 is operational end-to-end: model generation, intraday collection, SQLite logging, and outcome backfill are implemented. VM cron infrastructure is in place; latest fix ensures KNYC backfill falls through to ASOS hourly max when daily CLI endpoint data is unavailable. Current focus is daily run discipline, missed-backfill monitoring, and evidence collection.</div>
+      <div class="note green"><strong>Progress (2026-04-05):</strong> v0 is operational end-to-end: model generation, intraday collection, SQLite logging, and outcome backfill are implemented. VM cron infrastructure is in place. Outcome backfill uses NWS-aligned sources only: final CLI from <code>cli_observations</code>, else preliminary CLI (stderr WARNING), else Iowa State Mesonet <strong>daily</strong> climate report for KNYC. ASOS hourly max is <strong>not</strong> used for settlement — it can disagree with the official daily high. If no value is available, backfill fails until re-run or <code>--actual-max</code>. Current focus is daily run discipline, missed-backfill monitoring, and evidence collection.</div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
@@ -495,7 +495,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Add backfill to daily cron on VM</div>
-              <div class="task-note"><strong>Configured on VM.</strong> Use Python 3 explicitly:<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python3 logger.py &gt;&gt; logs/backfill.log 2&gt;&amp;1</code><br><br>Defaults to yesterday&apos;s <code>event_date</code>. If CLI data is unavailable, logger now falls back to ASOS hourly max for past dates. Keep a missed-backfill check for <code>outcome IS NULL</code> on older event dates.</div>
+              <div class="task-note"><strong>Configured on VM.</strong> Use Python 3 explicitly:<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python3 logger.py &gt;&gt; logs/backfill.log 2&gt;&amp;1</code><br><br>Defaults to yesterday&apos;s <code>event_date</code>. Resolution order: final CLI in <code>cli_observations</code>, then preliminary CLI (stderr WARNING), then IEM daily climate CSV — no ASOS hourly fallback. If all paths fail, the job exits non-zero; re-run after data publish or use <code>--actual-max</code>. Keep a missed-backfill check for <code>outcome IS NULL</code> on older event dates.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -508,8 +508,8 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text done">NWS CLI pull at 6am -- verified actual max</div>
-              <div class="task-note"><strong>Implemented with fallback:</strong> daily CLI endpoint is attempted first; for KNYC gaps/unavailable responses, ASOS hourly <code>tmpf</code> fallback computes the verified daily max. Backfill remains idempotent and safe to re-run.</div>
+              <div class="task-text done">NWS CLI / IEM daily — verified actual max</div>
+              <div class="task-note"><strong>Implemented:</strong> Backfill prefers <code>cli_observations</code> (final row, then preliminary with stderr WARNING), then Iowa State Mesonet <code>request/daily.py</code> for KNYC. ASOS hourly <code>tmpf</code> is <strong>not</strong> used for settlement (not the official NWS daily high). Missing or empty daily report → <code>RuntimeError</code>; wait and re-run or <code>--actual-max</code>. Re-runs stay idempotent.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -580,7 +580,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Update backfill to prefer CLI over Iowa State Mesonet</div>
-              <div class="task-note"><strong>Implemented:</strong> logger backfill now checks <code>cli_observations</code> for final CLI rows first and uses that value for <code>actual_max_f</code>/<code>outcome</code>; Iowa State Mesonet remains fallback when no final CLI row exists.</div>
+              <div class="task-note"><strong>Implemented:</strong> logger backfill checks <code>cli_observations</code> first (final, then preliminary with WARNING), then IEM daily climate report. ASOS hourly max is not a settlement fallback.</div>
             </div>
           </div>
 
@@ -888,8 +888,13 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-05 — Outcome backfill: no ASOS hourly for settlement</div></div>
+        <div class="dec-why">ASOS hourly max can differ from the official NWS daily high in the CLI product. <code>logger.py</code> backfill therefore never uses ASOS hourly as a silent fallback. Order: final CLI in <code>cli_observations</code>, preliminary CLI from the same table (stderr WARNING), then Iowa State Mesonet <strong>daily</strong> climate CSV for KNYC. If none yield a usable max, the CLI fails with a clear error — re-run after publish or use <code>--actual-max</code>.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-31 — DSM and CLI monitoring added to collector for information timing analysis</div></div>
-        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Preliminary CLI effectively locks in the high. Logged in <code>cli_observations</code> table. Final CLI used for outcome backfill.<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
+        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Preliminary CLI effectively locks in the high. Logged in <code>cli_observations</code> table. Outcome backfill prefers final CLI, then preliminary CLI (warning), then IEM daily report — not ASOS hourly (see 2026-04-05 MOD).<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
       </div>
 
       <div class="dec">

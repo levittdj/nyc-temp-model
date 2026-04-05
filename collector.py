@@ -212,8 +212,13 @@ def _parse_cli_observation(raw_text: str, fetch_ts_utc: datetime) -> Optional[Tu
     is_preliminary = "PRELIMINARY" in text
     cli_high: Optional[float] = None
 
-    # Typical CLI tabular row (ignore wind-direction lines like "(240)").
-    m_high = re.search(r"^\s*HIGHEST\s+(-?\d{1,3})\b", text, flags=re.MULTILINE)
+    # Tabular MAXIMUM row — intraday/real-time collection only; not used for logger
+    # backfill settlement (which uses IEM daily). Skips record-extremes "HIGHEST ..." lines.
+    m_high = re.search(
+        r"^\s*MAXIMUM\s+(-?\d{1,3})\s+\d{3,4}\s*(?:AM|PM)",
+        text,
+        flags=re.MULTILINE,
+    )
     if m_high:
         try:
             cli_high = float(m_high.group(1))

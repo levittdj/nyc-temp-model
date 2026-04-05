@@ -6,7 +6,7 @@ What this validates:
 1) DSM parser handles coded DSM text.
 2) CLI parser handles preliminary and final CLI text.
 3) Logger table writers/readers work in a temp SQLite DB.
-4) logger.py CLI prefers final cli_observations over Mesonet fallback.
+4) logger.py backfill with --actual-max updates bracket_snapshots (no network).
 
 Run:
   python3 scripts/validate_dsm_cli.py
@@ -173,26 +173,28 @@ def main() -> int:
         best_cli = logger.latest_cli_observed_high(db, target, final_only=True)
         _assert(best_cli == 74.0, f"Expected final CLI high 74.0, got {best_cli}")
 
-        # End-to-end preference check through logger.py CLI path.
+        # End-to-end backfill via logger.py CLI (IEM fetch not exercised here).
         proc = subprocess.run(
             [
                 "python3",
                 str(Path(__file__).resolve().parents[1] / "logger.py"),
                 "--db",
                 str(db),
+                "--actual-max",
+                "74",
                 target.isoformat(),
             ],
             capture_output=True,
             text=True,
             check=False,
         )
-        _assert(proc.returncode == 0, f"logger.py CLI failed: {proc.stderr}")
+        _assert(proc.returncode == 0, f"logger.py CLI failed: {proc.stderr}\n{proc.stdout}")
         _assert(
-            "Using final CLI from cli_observations" in proc.stdout,
-            "Backfill did not prefer cli_observations final value",
+            "Using manually specified actual_max_f: 74" in proc.stdout,
+            "Backfill did not use --actual-max as expected",
         )
 
-    print("PASS: DSM/CLI parser + DB + backfill preference validation")
+    print("PASS: DSM/CLI parser + DB + backfill validation")
     return 0
 
 

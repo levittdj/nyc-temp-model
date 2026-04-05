@@ -400,9 +400,9 @@ def _forecast_lead_hours(snapshot_ts_utc: datetime, event_date: date, tz_name: s
 
 
 def _hours_to_settle(snapshot_ts_utc: datetime, event_date: date, tz_name: str = "America/New_York") -> float:
-    """Approx hours between snapshot_ts and expected CLI release (~18:00 local on event_date; PROVISIONAL)."""
+    """Approx hours between snapshot_ts and expected final CLI release (~03:00 local the following morning; PROVISIONAL)."""
     z = ZoneInfo(tz_name)
-    settle_local = datetime(event_date.year, event_date.month, event_date.day, 18, 0, tzinfo=z)
+    settle_local = datetime(event_date.year, event_date.month, event_date.day + 1, 3, 0, tzinfo=z)
     return (settle_local.astimezone(timezone.utc) - snapshot_ts_utc.astimezone(timezone.utc)).total_seconds() / 3600.0
 
 
@@ -743,27 +743,13 @@ if __name__ == "__main__":
         actual = args.actual_max
         print(f"Using manually specified actual_max_f: {actual}")
     else:
-        actual_final = latest_cli_observed_high(args.db, target, final_only=True)
-        actual_any = latest_cli_observed_high(args.db, target, final_only=False)
-        if actual_final is not None:
-            actual = actual_final
-            print(f"Using final CLI from cli_observations for {target}: {actual}")
-        elif actual_any is not None:
-            actual = actual_any
-            print(
-                f"WARNING: Using preliminary CLI from cli_observations for {target} ({actual} °F). "
-                "Re-run backfill after the final NWS CLI issuance if you need the official high.",
-                file=sys.stderr,
-            )
-            print(f"Using preliminary CLI from cli_observations for {target}: {actual}")
-        else:
-            print(f"Fetching NWS CLI actual max for KNYC on {target} (Mesonet fallback path)...")
-            try:
-                actual = fetch_knyc_cli_max(target)
-            except RuntimeError as e:
-                print(str(e), file=sys.stderr)
-                raise SystemExit(2)
-            print(f"NWS CLI actual_max_f: {actual}")
+        print(f"Fetching KNYC daily max for {target} from IEM daily climate report...")
+        try:
+            actual = fetch_knyc_cli_max(target)
+        except RuntimeError as e:
+            print(str(e), file=sys.stderr)
+            raise SystemExit(2)
+        print(f"IEM daily report actual_max_f: {actual}")
 
     n = backfill_outcome(args.db, target, actual)
     print(f"Updated {n} rows for event_date={target}")
