@@ -325,6 +325,66 @@ def latest_metar_observation_ts_utc(
         conn.close()
 
 
+def latest_metar_wind_speed_kt(
+    db_path: Path,
+    as_of_utc: datetime,
+    station: str = "KNYC",
+) -> Optional[int]:
+    """Most recent non-null wind_speed_kt in metar_observations at or before as_of_utc (METAR; not NWS grid)."""
+    if as_of_utc.tzinfo is None:
+        as_of_utc = as_of_utc.replace(tzinfo=timezone.utc)
+    as_of_s = _utc_z(as_of_utc)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        row = conn.execute(
+            """
+            SELECT wind_speed_kt
+            FROM metar_observations
+            WHERE station = ?
+              AND observation_ts <= ?
+              AND wind_speed_kt IS NOT NULL
+            ORDER BY observation_ts DESC
+            LIMIT 1
+            """,
+            (station, as_of_s),
+        ).fetchone()
+        if not row or row[0] is None:
+            return None
+        return int(row[0])
+    finally:
+        conn.close()
+
+
+def latest_morning_overnight_and_record_high(
+    db_path: Path,
+    event_date: date,
+) -> Tuple[Optional[float], Optional[float]]:
+    """overnight_low_f and record_high_f from the latest morning snapshot for event_date (any bracket row)."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        row = conn.execute(
+            """
+            SELECT overnight_low_f, record_high_f
+            FROM bracket_snapshots
+            WHERE event_date = ? AND snapshot_type = 'morning'
+            ORDER BY snapshot_ts DESC
+            LIMIT 1
+            """,
+            (event_date.isoformat(),),
+        ).fetchone()
+        if not row:
+            return None, None
+        ol, rh = row[0], row[1]
+        return (
+            float(ol) if ol is not None else None,
+            float(rh) if rh is not None else None,
+        )
+    finally:
+        conn.close()
+
+
 def log_metar_observations(
     db_path: Path,
     observations: List[Dict[str, Any]],
@@ -437,7 +497,27 @@ def log_morning_run(
     nbm_spread_raw = p90 - p10
     p10a, p50a, p90a = p10 + nbm_bias, p50 + nbm_bias, p90 + nbm_bias
     wind_dir, sky_cover = _wind_sky_from_nws(nws_log_context)
-    rh = _record_high_for_date(event_date, records_path)
+
+    # wind_speed_kt: morning rows use NWS grid 7am (wind_speed_kt_7am); intraday uses METAR
+    # (wind_speed_kt). Different instruments/physics — fine for v0 logging; do not blend naïvely in analysis.
+    ws_raw = nws_log_context.get("wind_speed_kt_7am")
+    if ws_raw is None:
+        ws_raw = nws_log_context.get("wind_speed_kt")
+    wind_speed_kt = int(round(float(ws_raw))) if ws_raw is not None else None
+
+    # overnight_low_f: morning from NWS grid minTemperature (wide time window; see morning_model stderr);
+    # intraday copied from latest morning snapshot for that event_date.
+    ol_raw = nws_log_context.get("overnight_low_f")
+    overnight_low_f = float(ol_raw) if ol_raw is not None else None
+
+    if snapshot_type == "intraday":
+        rh_raw = nws_log_context.get("record_high_f")
+        record_high_f = float(rh_raw) if rh_raw is not None else None
+    else:
+        # record_high_f requires records.json (365 KNYC calendar-day record highs). Repo does not
+        # include that file yet — column stays NULL until it is built and path is provided.
+        record_high_f = _record_high_for_date(event_date, records_path)
+
     nbm_cycle = _nbm_cycle_from_meta(nbp_meta or {})
 
     if snapshot_ts_utc.tzinfo is None:
@@ -499,10 +579,10 @@ def log_morning_run(
                     nbm_cycle,
                     forecast_lead_hours,
                     wind_dir,
-                    None,
+                    wind_speed_kt,
                     sky_cover,
-                    None,
-                    rh,
+                    overnight_low_f,
+                    record_high_f,
                     1 if record_prox_flag else 0,
                     open_s,
                     hours_since_open,

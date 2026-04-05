@@ -329,12 +329,12 @@ section { margin-bottom: 8px }
 
       <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
 
-      <div class="note green"><strong>Progress (2026-04-05):</strong> v0 is operational end-to-end: model generation, intraday collection, SQLite logging, and outcome backfill are implemented. VM cron infrastructure is in place. Outcome backfill uses NWS-aligned sources only: final CLI from <code>cli_observations</code>, else preliminary CLI (stderr WARNING), else Iowa State Mesonet <strong>daily</strong> climate report for KNYC. ASOS hourly max is <strong>not</strong> used for settlement — it can disagree with the official daily high. If no value is available, backfill fails until re-run or <code>--actual-max</code>. Current focus is daily run discipline, missed-backfill monitoring, and evidence collection.</div>
+      <div class="note green"><strong>Progress (2026-04-06):</strong> v0 is operational end-to-end: <strong>morning_model on VM cron</strong>, intraday collector, SQLite logging, outcome backfill (IEM daily KNYC + <code>--actual-max</code>; no ASOS hourly settlement). Datasette is live for review; Telegram is live. <strong>Next:</strong> cron-driven <strong>Paul</strong> (agent) proactively notifies on material market moves / edge opportunities (paper nudges only — no execution from core repo).</div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
         <span class="ver-tag v0">V0</span>
-        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a></div>
+        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Secondary v0 hypothesis (H3):</strong> Across daily-high temperature markets (cities/series), edge and economic attractiveness need not be uniform — some markets may be far more informative or profitable than others; v0 measures heterogeneity rather than assuming one locale generalizes.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a></div>
       </div>
 
       <div class="sec">What comes next if v0 shows signal</div>
@@ -495,7 +495,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Add backfill to daily cron on VM</div>
-              <div class="task-note"><strong>Configured on VM.</strong> Use Python 3 explicitly:<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python3 logger.py &gt;&gt; logs/backfill.log 2&gt;&amp;1</code><br><br>Defaults to yesterday&apos;s <code>event_date</code>. Resolution order: final CLI in <code>cli_observations</code>, then preliminary CLI (stderr WARNING), then IEM daily climate CSV — no ASOS hourly fallback. If all paths fail, the job exits non-zero; re-run after data publish or use <code>--actual-max</code>. Keep a missed-backfill check for <code>outcome IS NULL</code> on older event dates.</div>
+              <div class="task-note"><strong>Configured on VM.</strong> Use Python 3 explicitly:<br><br><code>0 12 * * * cd /home/&lt;user&gt;/nyc-temp-model &amp;&amp; python3 logger.py &gt;&gt; logs/backfill.log 2&gt;&amp;1</code><br><br>Defaults to yesterday&apos;s <code>event_date</code>. Pulls KNYC max from IEM daily climate CSV; <code>--actual-max</code> if needed. No ASOS hourly. If the fetch fails, the job exits non-zero. Keep a missed-backfill check for <code>outcome IS NULL</code> on older event dates.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -509,14 +509,14 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">NWS CLI / IEM daily — verified actual max</div>
-              <div class="task-note"><strong>Implemented:</strong> Backfill prefers <code>cli_observations</code> (final row, then preliminary with stderr WARNING), then Iowa State Mesonet <code>request/daily.py</code> for KNYC. ASOS hourly <code>tmpf</code> is <strong>not</strong> used for settlement (not the official NWS daily high). Missing or empty daily report → <code>RuntimeError</code>; wait and re-run or <code>--actual-max</code>. Re-runs stay idempotent.</div>
+              <div class="task-note"><strong>Implemented:</strong> Backfill CLI pulls Iowa State Mesonet <code>request/daily.py</code> for KNYC; <code>--actual-max</code> when the archive is not ready. ASOS hourly is <strong>not</strong> used for settlement. <code>cli_observations</code> is collector-side timing telemetry, not the logger settlement path. Re-runs stay idempotent.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text done">Simple daily print to terminal (no Telegram yet)</div>
-              <div class="task-note">Bracket table on stderr after JSON (<code>model_prob</code> / <code>market_price</code> / outcome column placeholder until backfill). Review manually each morning.</div>
+              <div class="task-text done">Terminal review after morning run</div>
+              <div class="task-note">Bracket table on stderr after JSON (<code>model_prob</code> / <code>market_price</code> / outcome column placeholder until backfill). Telegram / agent digests are ops-layer; core script output stays stderr + SQLite.</div>
             </div>
           </div>
         </div>
@@ -553,6 +553,14 @@ section { margin-bottom: 8px }
           </div>
 
           <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">V0 — additional Kalshi daily-high cities (collect + evaluate)</div>
+              <div class="task-note"><strong>V0 backlog.</strong> For each extra locale with a tradeable Kalshi daily-high series: collect the same classes of data as NYC (prices, NBM percentiles at the right grid/station, intraday context where applicable, settlement-grade outcomes). Extend morning_model / logger / collector config so rows are attributable to a <strong>market or station id</strong> (schema tweak as needed). <strong>Evaluation</strong> must include those cities — run v0 gates (calibration, directional pattern, paper P&amp;L) overall <em>and</em> stratified by locale. The hypothesis may hold in some markets and fail in others; multi-city v0 is explicitly to measure that, not to assume NYC generalizes.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Pull and log DSM (Daily Summary Message) releases</div>
@@ -580,7 +588,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Update backfill to prefer CLI over Iowa State Mesonet</div>
-              <div class="task-note"><strong>Implemented:</strong> logger backfill checks <code>cli_observations</code> first (final, then preliminary with WARNING), then IEM daily climate report. ASOS hourly max is not a settlement fallback.</div>
+              <div class="task-note"><strong>Superseded:</strong> logger backfill now uses IEM daily KNYC only (+ <code>--actual-max</code>); <code>cli_observations</code> stays collector-only for NWS product timing. ASOS hourly is not a settlement fallback.</div>
             </div>
           </div>
 
@@ -661,8 +669,15 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
-              <div class="task-text">Run morning_model.py manually each day at 7am for 20-30 days</div>
-              <div class="task-note">Paper trades: record what you would have bet at the morning price</div>
+              <div class="task-text">Keep 7am morning_model cron healthy; paper log 20–30 days</div>
+              <div class="task-note">Morning snapshot is automated on the VM (e.g. <code>morning_model.sh</code>). Spot-check logs/Datasette for fresh <code>snapshot_type=morning</code> rows. Paper trades: record what you would have bet at the morning price.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Cron + Paul: proactive Telegram on market moves and opportunities</div>
+              <div class="task-note"><strong>Ops layer (v0).</strong> Schedule the Paul agent (or a thin wrapper) on cron — e.g. after each collector run, hourly, or on triggers — to read SQLite (read-only) and optionally collector logs. Notify on: large |edge| or edge change vs prior snapshot, meaningful Kalshi price move between ticks, new DSM/CLI rows (information events), digest after morning_model. All numeric gates are <strong>PROVISIONAL</strong>. Purpose is research + paper nudges, not automated execution from this repository.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -694,10 +709,10 @@ section { margin-bottom: 8px }
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Send daily Telegram updates from the weather app and include Vinay as an interactive recipient</div>
-              <div class="task-note">Add a daily v0 Telegram summary (morning model snapshot, backfill status, and key alerts). Vinay should be added as a recipient and able to interact with the bot workflow (basic commands/replies for status checks and acknowledgements).</div>
+              <div class="task-text done">Telegram baseline (daily / interactive)</div>
+              <div class="task-note"><strong>Live.</strong> Daily summaries and interactive access (incl. Vinay) are working. Extend with the Paul cron task above for <em>proactive</em> movement and opportunity alerts.</div>
             </div>
           </div>
         </div>
@@ -835,9 +850,11 @@ section { margin-bottom: 8px }
 
       <div class="note purple"><strong>H2 — Intraday timing / edge decay:</strong> As the day evolves (new forecasts + realized temps), prices may move toward updated probabilities with a measurable lag. Intraday snapshots exist to measure whether edge decays (market catches up) and whether moves are driven by the model updating or the market repricing.</div>
 
+      <div class="note blue"><strong>H3 — Cross-market heterogeneity (v0):</strong> Not all daily-high temperature markets are equally &quot;tradeable&quot; for the same model. Edge (magnitude, sign pattern, and realized economics after spreads and liquidity) may differ materially by city / Kalshi series — some locales structurally mispriced, others largely efficient or bot-dominated. v0 asks this directly whenever multiple markets are in the log: compare per-market and pooled metrics; do not assume NYC (or any single city) is representative.</div>
+
       <div class="card">
         <div class="clabel dim">Secondary tests (registered in advance)</div>
-        <div class="cbody"><strong>Favorite-longshot bias check:</strong> Partition observations by market price (cheap tails vs expensive middles) and measure average edge by bucket.<br><br><strong>Conditional strength:</strong> Evaluate whether mispricing is stronger under higher uncertainty (e.g., wider NBM spread) or near records.</div>
+        <div class="cbody"><strong>Favorite-longshot bias check:</strong> Partition observations by market price (cheap tails vs expensive middles) and measure average edge by bucket.<br><br><strong>Conditional strength:</strong> Evaluate whether mispricing is stronger under higher uncertainty (e.g., wider NBM spread) or near records.<br><br><strong>Cross-market comparison (when multi-city data exists):</strong> Stratify the same diagnostics by series/station — mean edge, calibration, paper P&amp;L baselines — and ask whether differences across markets exceed what noise would produce.</div>
       </div>
 
       <div class="sec">Success criteria (what counts as “signal”)</div>
@@ -888,13 +905,23 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-06 — Morning model automated; Telegram live; Paul proactive crons next</div></div>
+        <div class="dec-why"><code>morning_model.py</code> runs on VM crontab (~7am ET) via shell wrapper (venv + logging). Datasette and Telegram are operational. Proactive &quot;market movement / opportunity&quot; notifications are delegated to <strong>Paul</strong> on its own cron schedule reading the SQLite DB (and optionally logs); alert rules stay PROVISIONAL and do not place trades from core repo code. v0 evaluation remains <code>snapshot_type=&apos;morning&apos;</code> only.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-04-06 — Pre-registered H3: cross-market heterogeneity in edge and attractiveness</div></div>
+        <div class="dec-why">v0 explicitly allows that the same NBM→bracket engine may exhibit strong edge in some Kalshi daily-high cities/series and weak or zero edge in others (liquidity, bots, participant mix, climate predictability). Hypothesis H3 (Hypothesis tab): compare per-market vs pooled calibration, directional edge patterns, and after-cost paper metrics; multi-city collection is for measurement, not assumed generalization from NYC.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-05 — Outcome backfill: no ASOS hourly for settlement</div></div>
-        <div class="dec-why">ASOS hourly max can differ from the official NWS daily high in the CLI product. <code>logger.py</code> backfill therefore never uses ASOS hourly as a silent fallback. Order: final CLI in <code>cli_observations</code>, preliminary CLI from the same table (stderr WARNING), then Iowa State Mesonet <strong>daily</strong> climate CSV for KNYC. If none yield a usable max, the CLI fails with a clear error — re-run after publish or use <code>--actual-max</code>.</div>
+        <div class="dec-why">ASOS hourly max can differ from the official NWS daily high in the CLI product. <code>logger.py</code> backfill therefore never uses ASOS hourly as a silent fallback. Settlement values come from Iowa State Mesonet <strong>daily</strong> climate CSV for KNYC (or <code>--actual-max</code>). Collector <code>cli_observations</code> is for timing analysis, not the logger backfill path.</div>
       </div>
 
       <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-31 — DSM and CLI monitoring added to collector for information timing analysis</div></div>
-        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Preliminary CLI effectively locks in the high. Logged in <code>cli_observations</code> table. Outcome backfill prefers final CLI, then preliminary CLI (warning), then IEM daily report — not ASOS hourly (see 2026-04-05 MOD).<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
+        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Logged in <code>cli_observations</code> for information timing; logger backfill uses IEM daily KNYC (see 2026-04-05 MOD).<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
       </div>
 
       <div class="dec">
@@ -1154,7 +1181,7 @@ section { margin-bottom: 8px }
           <span class="rsev md">M</span>
           <div class="risk-body">
             <div class="risk-t">Data pull failure causes a missed bet or a bet on stale data</div>
-            <div class="risk-m">Mitigation: fail loudly, never silently. v0 is manual -- you see failures immediately. v1 adds automated failure alerts before Telegram bets fire.</div>
+            <div class="risk-m">Mitigation: fail loudly, never silently. Morning model + collector run on cron with logs; Datasette and Telegram/Paul surface gaps. v0 still has no order execution here — alerts support paper discipline only until a later live tier.</div>
           </div>
         </div>
         <div class="risk">

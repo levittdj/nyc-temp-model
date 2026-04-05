@@ -480,13 +480,67 @@ def fetch_kalshi_markets(series_ticker: str, target: date) -> list[dict[str, Any
     return out
 
 
+def _wind_speed_to_knots_int(val: float, uom: str) -> int:
+    """Convert NWS grid wind speed to integer knots (same grid response, no extra fetches)."""
+    u = (uom or "").lower()
+    # 1 kn = 1.852 km/h (exact definition) — NYC morning winds often ~5–15 kt; sanity-check logs if outside.
+    if "km_h" in u or "kmh" in u:
+        return int(round(val / 1.852))
+    if "m_s" in u or "m s-1" in u:
+        return int(round(val * 1.94384))
+    if "mph" in u or "mi_h" in u:
+        return int(round(val * 0.868976))
+    return int(round(val / 1.852))
+
+
+def _nws_min_temperature_cell_for_local_date(
+    props: dict[str, Any], target: date
+) -> Optional[tuple[float, str, float]]:
+    """
+    First grid minTemperature cell whose validity *start* is on target in America/New_York.
+
+    Returns (temp_f, validTime_raw, value_degC) or None. NWS cells are often PT12H/PT24H — the min is
+    over that whole window, not strictly “midnight–7am local”; see stderr log in nws_log_context.
+    """
+    mt = props.get("minTemperature")
+    if not mt or "values" not in mt:
+        return None
+    uom = mt.get("uom", "")
+    z = _zone()
+    for cell in mt["values"]:
+        vt = cell.get("validTime")
+        val = cell.get("value")
+        if vt is None or val is None:
+            continue
+        start_utc = parse_iso_duration_start(vt)
+        if start_utc.astimezone(z).date() != target:
+            continue
+        c = float(val)
+        if "degC" in uom or "Cel" in uom:
+            fahrenheit = c * 9.0 / 5.0 + 32.0
+        else:
+            fahrenheit = c
+        return (fahrenheit, str(vt), c)
+    return None
+
+
 def nws_log_context(grid_url: str, target: date) -> dict[str, Any]:
-    """Wind direction and sky cover at ~7am local on target (logging only, not used in model)."""
+    """
+    Wind/sky and wind speed at ~7am local from NWS forecast grid; daily min (°F) from minTemperature.
+
+    wind_speed_kt_7am is grid forecast, not METAR — intraday rows use METAR in collector; do not
+    treat the two as one series without care (logger/collector comments).
+    """
     grid = _http_json(grid_url)
     props = grid["properties"]
     z = _zone()
     t7 = datetime(target.year, target.month, target.day, 7, 0, tzinfo=z).astimezone(timezone.utc)
-    ctx: dict[str, Any] = {"wind_dir_7am": None, "sky_cover_7am": None}
+    ctx: dict[str, Any] = {
+        "wind_dir_7am": None,
+        "sky_cover_7am": None,
+        "wind_speed_kt_7am": None,
+        "overnight_low_f": None,
+    }
     for key, out_key in (("windDirection", "wind_dir_7am"), ("skyCover", "sky_cover_7am")):
         series = props.get(key)
         if not series or "values" not in series:
@@ -509,6 +563,39 @@ def nws_log_context(grid_url: str, target: date) -> dict[str, Any]:
             if st <= t7 < en:
                 ctx[out_key] = val
                 break
+
+    ws_series = props.get("windSpeed")
+    if ws_series and "values" in ws_series:
+        uom_ws = ws_series.get("uom", "")
+        for cell in ws_series["values"]:
+            vt = cell.get("validTime")
+            val = cell.get("value")
+            if not vt or val is None:
+                continue
+            st = parse_iso_duration_start(vt)
+            if "/" in vt:
+                dur = vt.split("/", 1)[1]
+                if dur.startswith("PT") and dur.endswith("H"):
+                    hrs = int(dur[2:-1])
+                    en = st + timedelta(hours=hrs)
+                else:
+                    en = st + timedelta(hours=1)
+            else:
+                en = st + timedelta(hours=1)
+            if st <= t7 < en:
+                ctx["wind_speed_kt_7am"] = _wind_speed_to_knots_int(float(val), uom_ws)
+                break
+
+    low_cell = _nws_min_temperature_cell_for_local_date(props, target)
+    if low_cell is not None:
+        low_f, raw_vt, raw_c = low_cell
+        ctx["overnight_low_f"] = low_f
+        print(
+            f"[morning_model] NWS grid minTemperature for local {target}: validTime={raw_vt!r} "
+            f"raw_degC={raw_c:.2f} -> overnight_low_f={low_f:.1f}F "
+            f"(min is over the cell's full valid window, often 12–24h; confirm vs obs if needed)",
+            file=sys.stderr,
+        )
     return ctx
 
 

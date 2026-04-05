@@ -9,12 +9,12 @@ A bracket-probability conversion engine for Kalshi NYC daily high temperature ma
 We are testing a hypothesis. We are not building a production system yet.
 
 ## Current phase: V0
-V0 is a hypothesis instrument -- three files, paper trade, manual review.
+V0 is a hypothesis instrument -- core scripts, paper trade, logged review (Datasette, Telegram/agent as ops layer).
 The goal is evidence. Not profit. Not a polished system.
 
 V0 files only:
   calibration.py    -- one-time script, outputs nbm_bias to config.json
-  morning_model.py  -- core model, runs manually each morning
+  morning_model.py  -- core model, runs on VM cron (~7am ET) for the morning snapshot
   logger.py         -- SQLite log + terminal print
 
 Do not build anything else until v0 produces evidence.
@@ -47,9 +47,8 @@ Do not build anything else until v0 produces evidence.
 ### On scope
 - No regime filter in v0.
 - No intraday engine in v0.
-- No Telegram alerts in v0.
-- No Kelly sizing in v0.
-- No bet execution of any kind in v0.
+- No bet execution from core repo code in v0 (no Kalshi order placement, no Kelly sizing in Python here).
+- Telegram / agent (Paul) notifications for monitoring, digests, or paper-trade prompts are OK as **ops layer** (cron + external agent reading DB/logs). They must not change v0 rules: evaluation still uses `snapshot_type='morning'` rows only; intraday remains analysis context.
 - If a feature is not in the v0 build order in CLAUDE.md, it does not get built.
 
 ## Code style

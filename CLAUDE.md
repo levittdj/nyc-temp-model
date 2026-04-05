@@ -14,14 +14,18 @@ documented in Bürgi et al. (2026) and the anecdotal participant signal.
 However, weather markets may behave differently due to bot activity and
 ensemble model availability. Direction remains an output of v0 data."
 
+**Secondary v0 hypothesis (H3):** Edge and economic attractiveness are not assumed uniform across daily-high temperature markets (cities / Kalshi series). Some locales may be far more mispriced or tradeable than others; v0 evaluation should stratify by market once multi-city data exists. See Hypothesis tab in project_docs.html.
+
 ## Current phase
 V0 -- hypothesis instrument. calibration + morning_model + logger + collector. Paper trade.
-Morning model: **manual** 7am run in v0 (evaluation rows only). Collector: VM cron for intraday data.
+Morning model: **automated** on VM cron (~7am ET, e.g. `morning_model.sh`) — evaluation rows are still `snapshot_type='morning'` only. Collector: VM cron for intraday data.
+Datasette is up for data review. Telegram is live.
 Goal: evidence, not profit.
 
 ## Active task
 [UPDATE THIS AT THE END OF EVERY SESSION]
-Phase 0 -- calibration.py + morning_model.py + logger.py + collector.py done. Next: daily cron-run monitoring + paper run workflow + outcome/backfill workflow as needed + dedicated weather-app VM + daily Telegram updates (including Vinay interactive access).
+Core pipeline is running on the VM. **Next ops:** add **cron-scheduled Paul (agent) runs** that proactively push Telegram when something worth attention happens — e.g. large intraday edge vs last snapshot, sharp Kalshi price move between collector ticks, DSM/CLI issuance events (from DB tables), or a digest after morning_model. Keep all alert thresholds **PROVISIONAL**; Paul nudges paper decisions only — no order execution from this repo in v0. See project_docs RUN phase (Paul task).
+**V0 backlog:** extend the pipeline to additional Kalshi daily-high-temperature cities (collect + settlement backfill per locale). v0 evaluation should stratify by city/series — the model may work in some locales and not others; measure it rather than assuming NYC generalizes. See build tracker in project_docs.html (COLLECT phase).
 
 ## Build order (v0 only)
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json
@@ -59,7 +63,8 @@ records.json         -- all-time KNYC daily records (one-time build)
 
 ## VM deployment (v0 ops)
 - VM runs collector.py via crontab (every 30 min, 6am-midnight ET)
-- morning_model.py runs **manually** at 7am (local or SSH) in v0 -- do not add to VM cron until 10+ stable manual days
+- morning_model.py runs on **cron** at ~7am ET (wrapper e.g. `morning_model.sh`: venv + log append)
+- Optional: separate crontab lines for **Paul** (agent) to poll SQLite / logs and send Telegram alerts (see project_docs)
 - Database: data/tempmodel.db on the VM
 - Logs: logs/collector.log on the VM
 - Health check: logs/last_success heartbeat, checked every 2 hours

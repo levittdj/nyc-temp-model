@@ -27,6 +27,8 @@ from typing import Any, DefaultDict, Optional, Tuple
 from logger import (
     DEFAULT_DB_NAME,
     latest_metar_observation_ts_utc,
+    latest_metar_wind_speed_kt,
+    latest_morning_overnight_and_record_high,
     log_cli_observation,
     log_dsm_observation,
     log_metar_observations,
@@ -463,7 +465,9 @@ def main() -> int:
     for ev in sorted(by_event.keys()):
         pct_f_raw, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, ev)
         rows = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev])
-        # NWS context is currently sourced in morning_model; collector keeps it empty for now.
+        # Intraday wind_speed_kt is METAR-derived (latest obs ≤ snapshot); morning_model uses NWS grid — different sources.
+        wkt = latest_metar_wind_speed_kt(args.db, snapshot_ts, station="KNYC")
+        olow, rhf = latest_morning_overnight_and_record_high(args.db, ev)
         log_morning_run(
             args.db,
             ev,
@@ -471,7 +475,11 @@ def main() -> int:
             pct_f_raw,
             nbm_bias,
             record_prox_flag=False,
-            nws_log_context={},
+            nws_log_context={
+                "wind_speed_kt": wkt,
+                "overnight_low_f": olow,
+                "record_high_f": rhf,
+            },
             snapshot_ts_utc=snapshot_ts,
             snapshot_type="intraday",
             nbp_meta=nbp_meta,
