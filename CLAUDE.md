@@ -32,7 +32,7 @@ Goal: evidence, not profit.
 1. calibration.py  -- 3yr KNYC ASOS + ERA5, OLS regression, output nbm_bias to config.json
 2. morning_model.py -- NBM p10/p50/p90 + Kalshi prices, zone interpolation, log edge per bracket
 3. logger.py       -- SQLite bracket_snapshots (event_date + snapshot_ts + snapshot_type + fields); stderr table; invoked from morning_model + collector
-4. collector.py    -- intraday snapshots (prices + model_prob); additive analysis infra only
+4. collector.py    -- intraday snapshots (prices + model_prob); feeds analysis and optional intraday engine (paper first)
 
 ## Key constraints -- do not violate
 - NBM is the full forecast. separate sky cover / wind / RH adjustments as a P1 on top
@@ -45,7 +45,7 @@ Goal: evidence, not profit.
 - v0 evaluation uses snapshot_type='morning' rows ONLY. Intraday snapshots are analysis context, not evaluation data.
 - All numeric thresholds (3F record proximity, 20-day window, 60% persistence) are
   PROVISIONAL placeholders. Label them as such. Do not treat them as validated.
-- Do not build regime filter, intraday trading engine in v0. (collector.py data collection is allowed.)
+- Do not build regime filter in v0. Intraday trading engine is in scope — implement against collector/DB; start paper/simulation and keep **live order execution** explicit, gated, and separate from evaluation rows (`snapshot_type='morning'` remains the v0 metric baseline).
 
 ## v0 success gate (must pre-register before evaluating)
 Layer 1 -- Brier score better than naive normal distribution baseline
