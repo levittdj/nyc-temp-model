@@ -45,18 +45,18 @@ for key, new in new_rows.items():
     move = new[2] - old[2]
     all_moves.append((key[0], key[1], old[2], new[2], move, new[3], new[4]))
 
-# Detect sweeps: 3+ brackets same event_date moving same direction >= SWEEP_THRESHOLD
+# Detect sweeps: 3+ brackets same event_date each moving >=SWEEP_THRESHOLD (any direction)
+# Prices sum to ~1, so they can't all move the same way — a redistribution across
+# multiple brackets is what indicates new information repricing the whole distribution.
 moves_by_date = defaultdict(list)
 for row in all_moves:
     moves_by_date[row[0]].append(row)
 
 sweep_alerts = []
 for event_date, rows in moves_by_date.items():
-    up_brackets = [r for r in rows if r[4] >= SWEEP_THRESHOLD]
-    down_brackets = [r for r in rows if r[4] <= -SWEEP_THRESHOLD]
-    for direction, brackets in [('up', up_brackets), ('down', down_brackets)]:
-        if len(brackets) >= SWEEP_MIN_BRACKETS:
-            sweep_alerts.append((event_date, direction, brackets))
+    large_movers = [r for r in rows if abs(r[4]) >= SWEEP_THRESHOLD]
+    if len(large_movers) >= SWEEP_MIN_BRACKETS:
+        sweep_alerts.append((event_date, large_movers, rows))
 
 # Detect individual large moves
 alerts = []
@@ -72,13 +72,14 @@ if not alerts and not sweep_alerts:
 lines = ['Sharp price move — ' + ts_new]
 
 # Sweep alerts first — higher signal
-for event_date, direction, brackets in sweep_alerts:
-    total_brackets = len(moves_by_date[event_date])
+for event_date, large_movers, all_date_rows in sweep_alerts:
+    total_brackets = len(all_date_rows)
     lines.append('')
-    lines.append('SWEEP: ' + str(len(brackets)) + '/' + str(total_brackets) + ' brackets moved ' + direction + ' \u226510c  (' + event_date + ')')
-    lines.append('  Individual brackets moving together indicates new information, not noise.')
-    avg_move = sum(abs(r[4]) for r in brackets) / len(brackets)
-    lines.append('  Avg move: ' + str(int(round(avg_move * 100))) + 'c  Brackets: ' + ', '.join(r[1] for r in sorted(brackets, key=lambda x: x[1])))
+    lines.append('SWEEP: ' + str(len(large_movers)) + '/' + str(total_brackets) + ' brackets moved \u226510c  (' + event_date + ')')
+    lines.append('  Distribution repriced across multiple brackets — indicates new information, not noise.')
+    for r in sorted(large_movers, key=lambda x: x[1]):
+        move = r[4]
+        lines.append('  ' + r[1] + ': ' + str(int(r[2]*100)) + 'c -> ' + str(int(r[3]*100)) + 'c  (' + ('+' if move>0 else '') + str(int(move*100)) + 'c)')
 
 # Individual bracket alerts
 for _, event_date, label, old_p, new_p, move, model_prob, edge in alerts:
