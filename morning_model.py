@@ -14,6 +14,8 @@ NWS grid maxTemperature valid start for the target local date.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import math
 import re
@@ -524,9 +526,44 @@ def _nws_min_temperature_cell_for_local_date(
     return None
 
 
+def _fetch_metar_sky_cover_7am(target: date) -> Optional[str]:
+    """
+    Fetch the most recent METAR skyc1 observation for KNYC in the window
+    5:00–8:00am local time on target date. Returns the skyc1 string (e.g.
+    'OVC', 'BKN', 'FEW', 'CLR') or None if unavailable.
+    """
+    z = _zone()
+    sts = datetime(target.year, target.month, target.day, 5, 0, tzinfo=z).astimezone(timezone.utc)
+    ets = datetime(target.year, target.month, target.day, 8, 0, tzinfo=z).astimezone(timezone.utc)
+    params = [
+        ("station", "KNYC"),
+        ("data", "skyc1"),
+        ("tz", "UTC"),
+        ("format", "onlycomma"),
+        ("sts", sts.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        ("ets", ets.strftime("%Y-%m-%dT%H:%M:%SZ")),
+    ]
+    url = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?" + urlencode(params)
+    try:
+        req = Request(url, headers={"User-Agent": NWS_USER_AGENT})
+        with urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        if raw.lstrip().startswith("["):
+            return None
+        rows = list(csv.DictReader(io.StringIO(raw)))
+        for rec in reversed(rows):
+            val = (rec.get("skyc1") or "").strip()
+            if val and val != "M":
+                return val
+    except Exception:
+        pass
+    return None
+
+
 def nws_log_context(grid_url: str, target: date) -> dict[str, Any]:
     """
-    Wind/sky and wind speed at ~7am local from NWS forecast grid; daily min (°F) from minTemperature.
+    Wind direction and wind speed at ~7am local from NWS forecast grid; sky cover from METAR skyc1
+    (5–8am local KNYC); daily min (°F) from grid minTemperature.
 
     wind_speed_kt_7am is grid forecast, not METAR — intraday rows use METAR in collector; do not
     treat the two as one series without care (logger/collector comments).
@@ -541,7 +578,7 @@ def nws_log_context(grid_url: str, target: date) -> dict[str, Any]:
         "wind_speed_kt_7am": None,
         "overnight_low_f": None,
     }
-    for key, out_key in (("windDirection", "wind_dir_7am"), ("skyCover", "sky_cover_7am")):
+    for key, out_key in (("windDirection", "wind_dir_7am"),):
         series = props.get(key)
         if not series or "values" not in series:
             continue
@@ -563,6 +600,8 @@ def nws_log_context(grid_url: str, target: date) -> dict[str, Any]:
             if st <= t7 < en:
                 ctx[out_key] = val
                 break
+
+    ctx["sky_cover_7am"] = _fetch_metar_sky_cover_7am(target)
 
     ws_series = props.get("windSpeed")
     if ws_series and "values" in ws_series:
