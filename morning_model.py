@@ -285,11 +285,12 @@ def pick_column_index(
 ) -> Optional[int]:
     """
     Column whose valid UTC falls on target_date in America/New_York; FHR in [6, 48].
-    If multiple qualify, lowest FHR (shortest lead time) wins.
+    Prefer valid time closest to 18:00 UTC (afternoon, ~2pm ET) — ensures we pick
+    the daytime max column, not an overnight column from the prior evening's cycle.
     """
     z = _zone()
     best_j: Optional[int] = None
-    best_fh: Optional[int] = None
+    best_dist: Optional[float] = None
     for j, vt in enumerate(valid_times):
         if vt is None:
             continue
@@ -298,9 +299,11 @@ def pick_column_index(
             continue
         if vt.astimezone(z).date() != target_date:
             continue
-        if best_j is None or fh < best_fh:
+        anchor = datetime(vt.year, vt.month, vt.day, 18, 0, tzinfo=timezone.utc)
+        dist = abs((vt - anchor).total_seconds())
+        if best_j is None or dist < best_dist:
             best_j = j
-            best_fh = fh
+            best_dist = dist
     return best_j
 
 
@@ -313,6 +316,7 @@ def fetch_pctmax_from_nbp_text(
     Download latest-available NBP bulletin; extract TXNP1/TXNP5/TXNP9 (°F) at best FHR column.
 
     TXNP* rows: NBM probabilistic daily max-T deciles (10th / 50th / 90th) in °F.
+    Column selection prefers valid time closest to 18Z on target date (afternoon max period).
 
     Returns (p10, p50, p90, meta).
     """
