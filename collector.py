@@ -393,7 +393,8 @@ def main() -> int:
         if sts_utc < day_start_utc:
             sts_utc = day_start_utc
         if sts_utc > snapshot_ts:
-            sts_utc = day_start_utc
+            # day_start_utc is in the future (overnight cron window, new UTC date, no obs yet)
+            sts_utc = snapshot_ts - timedelta(hours=2)
         metar_rows = _fetch_knyc_metar_observations(sts_utc, snapshot_ts)
         inserted = log_metar_observations(args.db, metar_rows, snapshot_ts, station="KNYC")
         print(
