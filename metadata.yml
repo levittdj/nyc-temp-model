@@ -83,3 +83,68 @@ databases:
         FROM metar_observations
         GROUP BY obs_date
         ORDER BY obs_date DESC
+
+      nbm_triplet_vs_quint_cdf: |-
+        SELECT event_date,
+               bracket_label,
+               model_prob AS prob_quint_cdf,
+               model_prob_triplet_cdf AS prob_triplet_cdf,
+               ROUND(model_prob - model_prob_triplet_cdf, 5) AS prob_delta,
+               nbm_p25_raw
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND model_prob_triplet_cdf IS NOT NULL
+        ORDER BY event_date DESC, bracket_label
+
+      edge_by_lead_time: |-
+        SELECT
+          CASE
+            WHEN forecast_lead_hours < 12 THEN 'same-day (<12h)'
+            WHEN forecast_lead_hours < 24 THEN 'short-lead (12-24h)'
+            ELSE 'day-before (>24h)'
+          END AS lead_bucket,
+          ROUND(AVG(edge), 4) AS mean_edge,
+          ROUND(AVG(ABS(edge)), 4) AS mean_abs_edge,
+          COUNT(DISTINCT event_date) AS n_days,
+          COUNT(*) AS n_observations,
+          ROUND(AVG(market_price), 4) AS mean_mkt_price
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND edge IS NOT NULL
+        GROUP BY lead_bucket
+        ORDER BY lead_bucket
+
+      edge_by_lead_and_bracket_type: |-
+        SELECT
+          CASE
+            WHEN forecast_lead_hours < 12 THEN 'same-day'
+            ELSE 'day-before'
+          END AS lead_bucket,
+          CASE
+            WHEN market_price >= 0.50 THEN 'favorite (>=50c)'
+            WHEN market_price <= 0.15 THEN 'tail (<=15c)'
+            ELSE 'middle'
+          END AS price_bucket,
+          ROUND(AVG(edge), 4) AS mean_edge,
+          COUNT(*) AS n
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND edge IS NOT NULL
+        GROUP BY lead_bucket, price_bucket
+        ORDER BY lead_bucket, price_bucket
+
+      ensemble_spread_vs_abs_error: |-
+        SELECT
+          event_date,
+          MAX(nbm_p90_adj - nbm_p10_adj) AS nbm_spread_adj_f,
+          MAX(ens_gefs_spread_f) AS ens_gefs_spread_f,
+          MAX(ens_ecmwf_spread_f) AS ens_ecmwf_spread_f,
+          MAX(actual_max_f) AS actual_max_f,
+          MAX(nbm_p50_adj) AS nbm_p50_adj,
+          ROUND(ABS(MAX(actual_max_f) - MAX(nbm_p50_adj)), 2) AS abs_err_vs_nbm_p50
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND actual_max_f IS NOT NULL
+        GROUP BY event_date
+        HAVING MAX(ens_gefs_spread_f) IS NOT NULL OR MAX(ens_ecmwf_spread_f) IS NOT NULL
+        ORDER BY event_date DESC

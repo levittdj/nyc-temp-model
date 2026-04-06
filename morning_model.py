@@ -19,6 +19,7 @@ import io
 import json
 import math
 import re
+import statistics
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -58,6 +59,8 @@ class ZoneModel:
     p50: float
     p90: float
     U: float
+    p25: Optional[float] = None
+    p75: Optional[float] = None
 
 
 @dataclass
@@ -74,6 +77,7 @@ class BracketRow:
     edge: float
     market_bid: Optional[float] = None
     market_ask: Optional[float] = None
+    model_prob_triplet_cdf: Optional[float] = None
 
 
 def load_config(path: Path) -> float:
@@ -84,18 +88,30 @@ def load_config(path: Path) -> float:
     return float(data["nbm_bias"])
 
 
-def build_zones(p10: float, p50: float, p90: float) -> ZoneModel:
+def build_zones(
+    p10: float,
+    p50: float,
+    p90: float,
+    p25: Optional[float] = None,
+    p75: Optional[float] = None,
+) -> ZoneModel:
     """
     Build asymmetric zone CDF support from biased percentiles.
 
-    Inner knots: F(p10)=0.1, F(p50)=0.5, F(p90)=0.9 with linear segments.
-    Lower tail: F(L)=0 with L = 2*p10 - p50; upper tail: F(U)=1 with U = 2*p90 - p50.
+    With optional p25/p75: seven interior knots (5 inner segments) plus tails.
+    Tail mirroring: L = 2*p10 - p25, U = 2*p90 - p75 when quartiles present;
+    else L = 2*p10 - p50, U = 2*p90 - p50 (legacy 3-knot).
     """
+    if p25 is not None and p75 is not None:
+        L = 2.0 * p10 - p25
+        U = 2.0 * p90 - p75
+        if L < p10 < p25 < p50 < p75 < p90 < U:
+            return ZoneModel(L=L, p10=p10, p50=p50, p90=p90, U=U, p25=p25, p75=p75)
     L = 2.0 * p10 - p50
     U = 2.0 * p90 - p50
     if not (L < p10 < p50 < p90 < U):
         raise ValueError(f"Invalid zone order after bias: L={L} p10={p10} p50={p50} p90={p90} U={U}")
-    return ZoneModel(L=L, p10=p10, p50=p50, p90=p90, U=U)
+    return ZoneModel(L=L, p10=p10, p50=p50, p90=p90, U=U, p25=None, p75=None)
 
 
 def zone_cdf(z: ZoneModel, x: float) -> float:
@@ -108,6 +124,24 @@ def zone_cdf(z: ZoneModel, x: float) -> float:
         return 0.0
     if x >= z.U:
         return 1.0
+    if z.p25 is not None and z.p75 is not None:
+        if x <= z.p10:
+            t = (x - z.L) / (z.p10 - z.L)
+            return t * 0.1
+        if x <= z.p25:
+            t = (x - z.p10) / (z.p25 - z.p10)
+            return 0.1 + t * 0.15
+        if x <= z.p50:
+            t = (x - z.p25) / (z.p50 - z.p25)
+            return 0.25 + t * 0.25
+        if x <= z.p75:
+            t = (x - z.p50) / (z.p75 - z.p50)
+            return 0.5 + t * 0.25
+        if x <= z.p90:
+            t = (x - z.p75) / (z.p90 - z.p75)
+            return 0.75 + t * 0.15
+        t = (x - z.p90) / (z.U - z.p90)
+        return 0.9 + t * 0.1
     if x <= z.p10:
         t = (x - z.L) / (z.p10 - z.L)
         return t * 0.1
@@ -278,6 +312,21 @@ def column_valid_times_utc(cycle_init: datetime, fhr_row: list[Optional[int]]) -
     return out
 
 
+def _nbp_cell_float(rows: dict[str, Any], key: str, j: int) -> Optional[float]:
+    if key not in rows:
+        return None
+    row = rows[key]
+    if j >= len(row):
+        return None
+    v = row[j]
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def pick_column_index(
     valid_times: list[Optional[datetime]],
     fhr_row: list[Optional[int]],
@@ -318,11 +367,12 @@ def fetch_pctmax_from_nbp_text(
     """
     Download latest-available NBP bulletin; extract TXNP1/TXNP5/TXNP9 (°F) at best FHR column.
 
-    TXNP* rows: NBM probabilistic daily max-T deciles (10th / 50th / 90th) in °F.
+    TXNP* rows: NBM probabilistic daily max-T deciles in °F (TXNP1/5/9 required; TXNP2 p25,
+    TXNP7 p75, TXNSD stdev optional at the same column).
     Column selection prefers valid time closest to 00Z UTC on the day after the target
     local date (end of NBM daytime max window, ~8pm ET).
 
-    Returns (p10, p50, p90, meta).
+    Returns (p10, p50, p90, meta). meta may include nbm_p25_raw, nbm_p75_raw, nbm_sd_raw.
     """
     target_date = valid_start_utc.astimezone(_zone()).date()
     anchor_date = target_date
@@ -368,6 +418,15 @@ def fetch_pctmax_from_nbp_text(
                 "nbp_valid_utc": vts[j].isoformat() if vts[j] else None,
                 "nbp_column_index": j,
             }
+            p25v = _nbp_cell_float(rows, "TXNP2", j)
+            p75v = _nbp_cell_float(rows, "TXNP7", j)
+            sdv = _nbp_cell_float(rows, "TXNSD", j)
+            if p25v is not None:
+                meta["nbm_p25_raw"] = p25v
+            if p75v is not None:
+                meta["nbm_p75_raw"] = p75v
+            if sdv is not None:
+                meta["nbm_sd_raw"] = sdv
             if abs(p50 - nws_p50_f) > 8.0:
                 print(
                     f"WARNING: NBP TXNP5 ({p50:.1f}F) vs NWS grid maxT ({nws_p50_f:.1f}F) differ > 8F.",
@@ -674,10 +733,17 @@ def run_model(
     series_ticker: str,
     pct_f_raw: tuple[float, float, float],
     kalshi_markets: Optional[list[dict[str, Any]]] = None,
+    nbm_p25_raw: Optional[float] = None,
+    nbm_p75_raw: Optional[float] = None,
 ) -> list[BracketRow]:
-    """Core model: zones from biased NBM triple; optional live Kalshi list."""
+    """Core model: zones from biased NBM triple (optional p25/p75 for 5-knot CDF); optional live Kalshi list."""
     p10, p50, p90 = apply_nbm_bias(pct_f_raw[0], pct_f_raw[1], pct_f_raw[2], nbm_bias)
-    z = build_zones(p10, p50, p90)
+    p25a = nbm_p25_raw + nbm_bias if nbm_p25_raw is not None else None
+    p75a = nbm_p75_raw + nbm_bias if nbm_p75_raw is not None else None
+    z = build_zones(p10, p50, p90, p25a, p75a)
+    z_triplet = (
+        build_zones(p10, p50, p90) if (p25a is not None and p75a is not None) else None
+    )
     if kalshi_markets is None:
         kalshi_markets = fetch_kalshi_markets(series_ticker, target)
     rows: list[BracketRow] = []
@@ -691,6 +757,7 @@ def run_model(
         bid_f = float(bid) if bid is not None else None
         ask_f = float(ask) if ask is not None else None
         mp = bracket_prob(z, lo, hi)
+        mp3 = bracket_prob(z_triplet, lo, hi) if z_triplet is not None else None
         rows.append(
             BracketRow(
                 ticker=ticker,
@@ -703,6 +770,7 @@ def run_model(
                 market_ask=ask_f,
                 model_prob=mp,
                 edge=mp - price,
+                model_prob_triplet_cdf=mp3,
             )
         )
     rows.sort(key=lambda r: r.lower_f if not math.isinf(r.lower_f) else -999)
@@ -718,6 +786,115 @@ def run_model(
     return rows
 
 
+def _c_to_f(c: float) -> float:
+    return c * 9.0 / 5.0 + 32.0
+
+
+def _emp_quantile(sorted_vals: list[float], q: float) -> float:
+    if not sorted_vals:
+        return float("nan")
+    n = len(sorted_vals)
+    if n == 1:
+        return sorted_vals[0]
+    pos = q * (n - 1)
+    lo = int(math.floor(pos))
+    hi = int(math.ceil(pos))
+    lo = max(0, min(lo, n - 1))
+    hi = max(0, min(hi, n - 1))
+    if lo == hi:
+        return sorted_vals[lo]
+    w = pos - lo
+    return sorted_vals[lo] * (1.0 - w) + sorted_vals[hi] * w
+
+
+def _ensemble_member_stats_f(
+    daily: dict[str, Any],
+    day_idx: int,
+    member_key_re: re.Pattern[str],
+) -> Optional[dict[str, float]]:
+    vals_c: list[float] = []
+    for k, series in daily.items():
+        if k == "time" or not isinstance(series, list):
+            continue
+        if not member_key_re.match(k):
+            continue
+        if day_idx >= len(series):
+            continue
+        cell = series[day_idx]
+        if cell is None:
+            continue
+        try:
+            vals_c.append(float(cell))
+        except (TypeError, ValueError):
+            continue
+    if len(vals_c) < 2:
+        return None
+    vals_f = sorted(_c_to_f(c) for c in vals_c)
+    return {
+        "spread_f": float(max(vals_f) - min(vals_f)),
+        "sd_f": float(statistics.pstdev(vals_f)),
+        "p10_f": float(_emp_quantile(vals_f, 0.10)),
+        "p50_f": float(_emp_quantile(vals_f, 0.50)),
+        "p90_f": float(_emp_quantile(vals_f, 0.90)),
+    }
+
+
+def fetch_ensemble_spread(lat: float, lon: float, event_date: date) -> dict[str, Any]:
+    """
+    Open-Meteo ensemble daily max temperature (logging only — does not modify model_prob in v0).
+
+    Pulls GFS seamless (GEFS-like) and ECMWF IFS 0.25° ensemble members; returns a flat dict
+    with keys ens_gefs_spread_f, ens_gefs_sd_f, ens_gefs_p50_f, ens_ecmwf_spread_f,
+    ens_ecmwf_sd_f, ens_ecmwf_p50_f when available. Requires ensemble-api.open-meteo.com reachability.
+    """
+    zt = _zone()
+    ny_today = datetime.now(zt).date()
+    delta = (event_date - ny_today).days
+    forecast_days = min(16, max(3, delta + 3))
+    base = (
+        "https://ensemble-api.open-meteo.com/v1/ensemble"
+        f"?latitude={lat}&longitude={lon}&daily=temperature_2m_max"
+        f"&forecast_days={forecast_days}&timezone=America%2FNew_York"
+    )
+    # Per-response keys: with timezone=America/New_York both models use
+    # temperature_2m_max_memberNN (no model suffix in the key name).
+    re_members = re.compile(r"^temperature_2m_max_member\d+$")
+    out: dict[str, Any] = {}
+    try:
+        j_g = _http_json(base + "&models=gfs_seamless")
+        times = (j_g.get("daily") or {}).get("time") or []
+        if isinstance(times, list):
+            try:
+                day_idx = [str(t) for t in times].index(event_date.isoformat())
+            except ValueError:
+                day_idx = -1
+            if day_idx >= 0:
+                g = _ensemble_member_stats_f(j_g.get("daily") or {}, day_idx, re_members)
+                if g:
+                    out["ens_gefs_spread_f"] = g["spread_f"]
+                    out["ens_gefs_sd_f"] = g["sd_f"]
+                    out["ens_gefs_p50_f"] = g["p50_f"]
+    except (HTTPError, URLError, TimeoutError, OSError, TypeError, ValueError, KeyError):
+        pass
+    try:
+        j_e = _http_json(base + "&models=ecmwf_ifs025")
+        times = (j_e.get("daily") or {}).get("time") or []
+        if isinstance(times, list):
+            try:
+                day_idx = [str(t) for t in times].index(event_date.isoformat())
+            except ValueError:
+                day_idx = -1
+            if day_idx >= 0:
+                e = _ensemble_member_stats_f(j_e.get("daily") or {}, day_idx, re_members)
+                if e:
+                    out["ens_ecmwf_spread_f"] = e["spread_f"]
+                    out["ens_ecmwf_sd_f"] = e["sd_f"]
+                    out["ens_ecmwf_p50_f"] = e["p50_f"]
+    except (HTTPError, URLError, TimeoutError, OSError, TypeError, ValueError, KeyError):
+        pass
+    return out
+
+
 def fetch_live_nbm_fahrenheit(lat: float, lon: float, target: date) -> tuple[tuple[float, float, float], dict[str, Any]]:
     """NBP text TXNP1/5/9 in °F plus metadata."""
     grid_url = nws_grid_url_for_point(lat, lon)
@@ -731,6 +908,8 @@ def synthetic_self_test() -> None:
     bias = 0.0
     z = build_zones(50.0, 60.0, 70.0)
     assert abs(zone_cdf(z, 60.0) - 0.5) < 1e-9
+    z5 = build_zones(48.0, 60.0, 72.0, 54.0, 66.0)
+    assert abs(zone_cdf(z5, 60.0) - 0.5) < 1e-6
     p_mid = bracket_prob(z, 59.0, 61.0)
     assert 0.05 < p_mid < 0.25, p_mid
     p_tail = bracket_prob(z, 75.0, float("inf"))
@@ -789,7 +968,24 @@ def main() -> int:
     else:
         pct_f, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, target)
 
-    rows = run_model(target, nbm_bias, args.series, pct_f)
+    p25r = nbp_meta.get("nbm_p25_raw") if nbp_meta else None
+    p75r = nbp_meta.get("nbm_p75_raw") if nbp_meta else None
+    try:
+        p25f = float(p25r) if p25r is not None else None
+    except (TypeError, ValueError):
+        p25f = None
+    try:
+        p75f = float(p75r) if p75r is not None else None
+    except (TypeError, ValueError):
+        p75f = None
+    rows = run_model(
+        target,
+        nbm_bias,
+        args.series,
+        pct_f,
+        nbm_p25_raw=p25f,
+        nbm_p75_raw=p75f,
+    )
     pull_ts = datetime.now(timezone.utc)
     p10b, p50b, p90b = apply_nbm_bias(pct_f[0], pct_f[1], pct_f[2], nbm_bias)
     out: dict[str, Any] = {
@@ -834,6 +1030,11 @@ def main() -> int:
         from logger import DEFAULT_DB_NAME, log_morning_run, print_terminal_review
 
         log_db = args.log_db if args.log_db is not None else Path(__file__).resolve().parent / DEFAULT_DB_NAME
+        ens: dict[str, Any] = {}
+        try:
+            ens = fetch_ensemble_spread(KNYC_LAT, KNYC_LON, target)
+        except Exception:
+            pass
         log_morning_run(
             log_db,
             target,
@@ -846,6 +1047,7 @@ def main() -> int:
             "morning",
             out.get("nbm_fetch") or {},
             Path(__file__).resolve().parent / "records.json",
+            ensemble_snap=ens,
         )
         print_terminal_review(target, rows)
     return 0

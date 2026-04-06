@@ -24,7 +24,8 @@ Goal: evidence, not profit.
 
 ## Active task
 [UPDATE THIS AT THE END OF EVERY SESSION]
-Core pipeline is running on the VM. **Next ops:** add **cron-scheduled Paul (agent) runs** that proactively push Telegram when something worth attention happens — e.g. large intraday edge vs last snapshot, sharp Kalshi price move between collector ticks, DSM/CLI issuance events (from DB tables), or a digest after morning_model. Keep all alert thresholds **PROVISIONAL**; Paul nudges paper decisions only — no order execution from this repo in v0. See project_docs RUN phase (Paul task).
+**Shipped in repo:** NBP p25/p75/SD + optional 5-knot CDF; Open-Meteo GEFS/ECMWF ensemble spread columns (logging-only); Datasette queries for triplet-vs-quint `model_prob`, edge by `forecast_lead_hours`, and ensemble vs NBM spread vs |error|. **VM follow-up:** `git pull` and confirm `ensemble-api.open-meteo.com` is reachable from cron (if blocked, ensemble columns stay NULL until network allows).
+**Next ops:** **cron-scheduled Paul (agent) runs** that proactively push Telegram when something worth attention happens — e.g. large intraday edge vs last snapshot, sharp Kalshi price move between collector ticks, DSM/CLI issuance events (from DB tables), or a digest after morning_model. Keep all alert thresholds **PROVISIONAL**; Paul nudges paper decisions only — no order execution from this repo in v0. See project_docs RUN phase (Paul task).
 **V0 backlog:** extend the pipeline to additional Kalshi daily-high-temperature cities (collect + settlement backfill per locale). v0 evaluation should stratify by city/series — the model may work in some locales and not others; measure it rather than assuming NYC generalizes. See build tracker in project_docs.html (COLLECT phase).
 
 ## Build order (v0 only)

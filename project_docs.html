@@ -554,6 +554,30 @@ section { margin-bottom: 8px }
           </div>
 
           <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">NBP TXNP2 / TXNP7 / TXNSD + 5-knot zone CDF (optional)</div>
+              <div class="task-note"><strong>Implemented:</strong> NBP text parser already exposed all rows; <code>fetch_pctmax_from_nbp_text</code> now pulls TXNP2 (p25), TXNP7 (p75), and TXNSD when present. <code>build_zones()</code> uses a 7-knot piecewise CDF with tail mirroring <code>L = 2×p10 − p25</code>, <code>U = 2×p90 − p75</code> when quartiles validate; otherwise legacy 3-knot. <code>model_prob_triplet_cdf</code> logs the same brackets under the triplet CDF for A/B in Datasette. Columns <code>nbm_p25_raw</code>, <code>nbm_p75_raw</code>, <code>nbm_sd_raw</code> on morning + intraday rows. v0 evaluation gates unchanged.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Stratify morning edge by <code>forecast_lead_hours</code> (Datasette)</div>
+              <div class="task-note"><strong>Implemented (analysis only):</strong> canned queries <code>edge_by_lead_time</code> and <code>edge_by_lead_and_bracket_type</code> in <code>metadata.yml</code>. No pipeline change — uses existing morning rows for today vs next-day markets. Review after 10+ days with both lead buckets.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Open-Meteo ensemble spread (logging only)</div>
+              <div class="task-note"><strong>Implemented:</strong> <code>fetch_ensemble_spread()</code> in <code>morning_model.py</code> — GFS seamless (GEFS-like members) + ECMWF IFS 0.25° ensemble via <code>ensemble-api.open-meteo.com</code>; daily max-T matched to <code>event_date</code> in America/New_York. Logs <code>ens_gefs_*</code> / <code>ens_ecmwf_*</code> columns on morning + intraday rows. Does <strong>not</strong> alter <code>model_prob</code> in v0. VM must allow outbound HTTPS to that host. Datasette: <code>ensemble_spread_vs_abs_error</code> vs NBM spread and settlement error.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
               <div class="task-text">Backlog — intraday model updates for same-day markets</div>

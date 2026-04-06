@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     bracket_upper_f REAL,
 
     model_prob REAL,
+    model_prob_triplet_cdf REAL,
     market_price REAL,
     market_bid REAL,
     market_ask REAL,
@@ -51,6 +52,9 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     nbm_p10_raw REAL,
     nbm_p50_raw REAL,
     nbm_p90_raw REAL,
+    nbm_p25_raw REAL,
+    nbm_p75_raw REAL,
+    nbm_sd_raw REAL,
     nbm_bias_applied REAL,
     nbm_p10_adj REAL,
     nbm_p50_adj REAL,
@@ -69,6 +73,13 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     market_open_ts TEXT,
     hours_since_open REAL,
     hours_to_settle REAL,
+
+    ens_gefs_spread_f REAL,
+    ens_gefs_sd_f REAL,
+    ens_ecmwf_spread_f REAL,
+    ens_ecmwf_sd_f REAL,
+    ens_gefs_p50_f REAL,
+    ens_ecmwf_p50_f REAL,
 
     PRIMARY KEY (event_date, snapshot_ts, snapshot_type, bracket_label)
 );
@@ -101,6 +112,28 @@ CREATE TABLE IF NOT EXISTS metar_observations (
     PRIMARY KEY (observation_ts, station)
 );
 """
+
+# Columns added after first ship (ALTER TABLE for existing DBs).
+_BRACKET_SNAPSHOT_ALTER: Tuple[Tuple[str, str], ...] = (
+    ("nbm_p25_raw", "REAL"),
+    ("nbm_p75_raw", "REAL"),
+    ("nbm_sd_raw", "REAL"),
+    ("model_prob_triplet_cdf", "REAL"),
+    ("ens_gefs_spread_f", "REAL"),
+    ("ens_gefs_sd_f", "REAL"),
+    ("ens_ecmwf_spread_f", "REAL"),
+    ("ens_ecmwf_sd_f", "REAL"),
+    ("ens_gefs_p50_f", "REAL"),
+    ("ens_ecmwf_p50_f", "REAL"),
+)
+
+
+def _migrate_bracket_snapshots(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(bracket_snapshots)")}
+    for col, decl in _BRACKET_SNAPSHOT_ALTER:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE bracket_snapshots ADD COLUMN {col} {decl}")
+            cols.add(col)
 
 
 def _bounds_db(lower_f: float, upper_f: float) -> Tuple[Optional[float], Optional[float]]:
@@ -152,6 +185,7 @@ def _wind_sky_from_nws(ctx: Dict[str, Any]) -> Tuple[Optional[str], Optional[str
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _migrate_bracket_snapshots(conn)
     conn.commit()
 
 
@@ -491,11 +525,32 @@ def log_morning_run(
     snapshot_type: str = "morning",
     nbp_meta: Optional[Dict[str, Any]] = None,
     records_path: Optional[Path] = None,
+    ensemble_snap: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Insert one snapshot (one row per bracket) for a single event_date."""
     p10, p50, p90 = pct_f_raw
     nbm_spread_raw = p90 - p10
     p10a, p50a, p90a = p10 + nbm_bias, p50 + nbm_bias, p90 + nbm_bias
+    meta = nbp_meta or {}
+
+    def _f_opt(x: Any) -> Optional[float]:
+        if x is None:
+            return None
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    nbm_p25_raw = _f_opt(meta.get("nbm_p25_raw"))
+    nbm_p75_raw = _f_opt(meta.get("nbm_p75_raw"))
+    nbm_sd_raw = _f_opt(meta.get("nbm_sd_raw"))
+    ens = ensemble_snap or {}
+    ens_gefs_spread_f = ens.get("ens_gefs_spread_f")
+    ens_gefs_sd_f = ens.get("ens_gefs_sd_f")
+    ens_ecmwf_spread_f = ens.get("ens_ecmwf_spread_f")
+    ens_ecmwf_sd_f = ens.get("ens_ecmwf_sd_f")
+    ens_gefs_p50_f = ens.get("ens_gefs_p50_f")
+    ens_ecmwf_p50_f = ens.get("ens_ecmwf_p50_f")
     wind_dir, sky_cover = _wind_sky_from_nws(nws_log_context)
 
     # wind_speed_kt: morning rows use NWS grid 7am (wind_speed_kt_7am); intraday uses METAR
@@ -539,20 +594,23 @@ def log_morning_run(
             lo_db, hi_db = _bounds_db(r.lower_f, r.upper_f)
             bid = getattr(r, "market_bid", None)
             ask = getattr(r, "market_ask", None)
+            triplet = getattr(r, "model_prob_triplet_cdf", None)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO bracket_snapshots (
                     event_date, snapshot_ts, snapshot_type,
                     bracket_label, bracket_lower_f, bracket_upper_f,
-                    model_prob, market_price, market_bid, market_ask, edge, outcome,
+                    model_prob, model_prob_triplet_cdf, market_price, market_bid, market_ask, edge, outcome,
                     actual_max_f,
-                    nbm_p10_raw, nbm_p50_raw, nbm_p90_raw, nbm_bias_applied,
+                    nbm_p10_raw, nbm_p50_raw, nbm_p90_raw, nbm_p25_raw, nbm_p75_raw, nbm_sd_raw, nbm_bias_applied,
                     nbm_p10_adj, nbm_p50_adj, nbm_p90_adj, nbm_spread_raw,
                     nbm_cycle, forecast_lead_hours,
                     wind_dir, wind_speed_kt, sky_cover, overnight_low_f,
                     record_high_f, record_prox_flag,
-                    market_open_ts, hours_since_open, hours_to_settle
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    market_open_ts, hours_since_open, hours_to_settle,
+                    ens_gefs_spread_f, ens_gefs_sd_f, ens_ecmwf_spread_f, ens_ecmwf_sd_f,
+                    ens_gefs_p50_f, ens_ecmwf_p50_f
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     event_date.isoformat(),
@@ -562,6 +620,7 @@ def log_morning_run(
                     lo_db,
                     hi_db,
                     r.model_prob,
+                    triplet,
                     r.market_price,
                     bid,
                     ask,
@@ -571,6 +630,9 @@ def log_morning_run(
                     p10,
                     p50,
                     p90,
+                    nbm_p25_raw,
+                    nbm_p75_raw,
+                    nbm_sd_raw,
                     nbm_bias,
                     p10a,
                     p50a,
@@ -587,6 +649,12 @@ def log_morning_run(
                     open_s,
                     hours_since_open,
                     hours_to_settle,
+                    ens_gefs_spread_f,
+                    ens_gefs_sd_f,
+                    ens_ecmwf_spread_f,
+                    ens_ecmwf_sd_f,
+                    ens_gefs_p50_f,
+                    ens_ecmwf_p50_f,
                 ),
             )
         conn.commit()

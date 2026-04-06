@@ -41,6 +41,7 @@ from morning_model import (
     BracketRow,
     bracket_prob,
     build_zones,
+    fetch_ensemble_spread,
     fetch_live_nbm_fahrenheit,
     kalshi_integration_bounds,
     kalshi_mid_price,
@@ -338,12 +339,27 @@ def _rows_for_event(
     nbm_bias: float,
     pct_f_raw: tuple[float, float, float],
     markets: list[dict[str, Any]],
+    nbp_meta: Optional[dict[str, Any]] = None,
 ) -> list[BracketRow]:
     """
     Compute model_prob for each bracket market for this event_date using shared zone math.
     """
+    meta = nbp_meta or {}
+    p25r = meta.get("nbm_p25_raw")
+    p75r = meta.get("nbm_p75_raw")
+    try:
+        p25f = float(p25r) if p25r is not None else None
+    except (TypeError, ValueError):
+        p25f = None
+    try:
+        p75f = float(p75r) if p75r is not None else None
+    except (TypeError, ValueError):
+        p75f = None
     p10b, p50b, p90b = pct_f_raw[0] + nbm_bias, pct_f_raw[1] + nbm_bias, pct_f_raw[2] + nbm_bias
-    z = build_zones(p10b, p50b, p90b)
+    p25b = p25f + nbm_bias if p25f is not None else None
+    p75b = p75f + nbm_bias if p75f is not None else None
+    z = build_zones(p10b, p50b, p90b, p25b, p75b)
+    z_triplet = build_zones(p10b, p50b, p90b) if (p25b is not None and p75b is not None) else None
     rows: list[BracketRow] = []
     for m in markets:
         title = str(m.get("title", ""))
@@ -355,6 +371,7 @@ def _rows_for_event(
         bid_f = float(bid) if bid is not None else None
         ask_f = float(ask) if ask is not None else None
         mp = bracket_prob(z, lo, hi)
+        mp3 = bracket_prob(z_triplet, lo, hi) if z_triplet is not None else None
         rows.append(
             BracketRow(
                 ticker=ticker,
@@ -367,6 +384,7 @@ def _rows_for_event(
                 edge=mp - price,
                 market_bid=bid_f,
                 market_ask=ask_f,
+                model_prob_triplet_cdf=mp3,
             )
         )
     # Sort and sanity check via the same conventions as morning_model (when full partition present)
@@ -465,10 +483,15 @@ def main() -> int:
     # For each open event_date, compute the appropriate NBM triple for that date.
     for ev in sorted(by_event.keys()):
         pct_f_raw, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, ev)
-        rows = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev])
+        rows = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta)
         # Intraday wind_speed_kt is METAR-derived (latest obs ≤ snapshot); morning_model uses NWS grid — different sources.
         wkt = latest_metar_wind_speed_kt(args.db, snapshot_ts, station="KNYC")
         olow, rhf = latest_morning_overnight_and_record_high(args.db, ev)
+        ens: dict[str, Any] = {}
+        try:
+            ens = fetch_ensemble_spread(KNYC_LAT, KNYC_LON, ev)
+        except Exception:
+            pass
         log_morning_run(
             args.db,
             ev,
@@ -485,6 +508,7 @@ def main() -> int:
             snapshot_type="intraday",
             nbp_meta=nbp_meta,
             records_path=Path(__file__).resolve().parent / "records.json",
+            ensemble_snap=ens,
         )
 
     print(f"collector: wrote intraday snapshots at {snapshot_ts.isoformat()} for {len(by_event)} event_date(s)")
