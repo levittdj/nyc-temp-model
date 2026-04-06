@@ -285,10 +285,14 @@ def pick_column_index(
 ) -> Optional[int]:
     """
     Column whose valid UTC falls on target_date in America/New_York; FHR in [6, 48].
-    Prefer valid time closest to 18:00 UTC (afternoon, ~2pm ET) — ensures we pick
-    the daytime max column, not an overnight column from the prior evening's cycle.
+    NBM NBP text uses 12-hour periods. The daytime max period ends at ~00Z the
+    following UTC day (8pm ET). Prefer the column whose valid_time is closest to
+    midnight UTC on target_date + 1 — this selects the daytime period (8am-8pm ET)
+    over the overnight period (8pm-8am ET).
     """
     z = _zone()
+    d1 = target_date + timedelta(days=1)
+    anchor = datetime(d1.year, d1.month, d1.day, 0, 0, tzinfo=timezone.utc)
     best_j: Optional[int] = None
     best_dist: Optional[float] = None
     for j, vt in enumerate(valid_times):
@@ -299,7 +303,6 @@ def pick_column_index(
             continue
         if vt.astimezone(z).date() != target_date:
             continue
-        anchor = datetime(vt.year, vt.month, vt.day, 18, 0, tzinfo=timezone.utc)
         dist = abs((vt - anchor).total_seconds())
         if best_j is None or dist < best_dist:
             best_j = j
@@ -316,7 +319,8 @@ def fetch_pctmax_from_nbp_text(
     Download latest-available NBP bulletin; extract TXNP1/TXNP5/TXNP9 (°F) at best FHR column.
 
     TXNP* rows: NBM probabilistic daily max-T deciles (10th / 50th / 90th) in °F.
-    Column selection prefers valid time closest to 18Z on target date (afternoon max period).
+    Column selection prefers valid time closest to 00Z UTC on the day after the target
+    local date (end of NBM daytime max window, ~8pm ET).
 
     Returns (p10, p50, p90, meta).
     """
