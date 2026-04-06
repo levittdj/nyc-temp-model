@@ -556,6 +556,14 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
+              <div class="task-text">Backlog — intraday model updates for same-day markets</div>
+              <div class="task-note"><strong>Context.</strong> NBP probabilistic text (TXNP p10/p50/p90) is a daily forecast product. For a given <code>event_date</code>, the last NBP cycle that covers the daytime period is 07Z (~11pm ET the prior evening). Later cycles (13Z, 19Z) skip past the same-day period entirely. After the 07Z cycle, <code>model_prob</code> for today&apos;s market is frozen.<br><br><strong>Option A — HRRR ensemble.</strong> High-Resolution Rapid Refresh updates hourly with a short-range (0–18h) max temperature forecast. As the day progresses, HRRR can provide a fresh probabilistic distribution that replaces the stale NBP read. Likely what intraday bots use.<br><br><strong>Option B — Observed max constraint.</strong> Once KNYC has recorded <em>X</em>°F as the running high (from METAR), hard-floor the distribution at <em>X</em>: truncate brackets below the current observed max and renormalize. Simple; no new probabilistic model — just constraint on the existing distribution.<br><br>Option B is a low-cost improvement that can layer on v0 infrastructure. Option A is higher accuracy but requires a new data source and refit logic.</div>
+            </div>
+          </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
               <div class="task-text">V0 — QA: intraday <code>wind_speed_kt</code> / <code>overnight_low_f</code> / <code>record_high_f</code> (collector path)</div>
               <div class="task-note"><strong>Same effort as LOG phase task.</strong> Intraday rows get <code>wind_speed_kt</code> from <code>metar_observations</code> (after each run&apos;s METAR backfill) and copy <code>overnight_low_f</code> / <code>record_high_f</code> from the latest <code>snapshot_type=morning</code> row per <code>event_date</code>. Validate soon after ship alongside morning_model/logger — see LOG task &quot;data quality check&quot; for the full checklist.</div>
             </div>
