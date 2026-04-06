@@ -329,7 +329,7 @@ section { margin-bottom: 8px }
 
       <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
 
-      <div class="note green"><strong>Progress (2026-04-06):</strong> v0 is operational end-to-end: <strong>morning_model on VM cron</strong>, intraday collector, SQLite logging, outcome backfill (IEM daily KNYC + <code>--actual-max</code>; no ASOS hourly settlement). Datasette is live for review; Telegram is live. <strong>Next:</strong> cron-driven <strong>Paul</strong> (agent) proactively notifies on material market moves / edge opportunities (paper nudges only — no execution from core repo).</div>
+      <div class="note green"><strong>Progress (2026-04-06):</strong> v0 is operational end-to-end: <strong>morning_model on VM cron</strong>, intraday collector, SQLite logging, outcome backfill (IEM daily KNYC + <code>--actual-max</code>; no ASOS hourly settlement). Datasette is live for review; Telegram is live. <strong>Paul alert crons are live</strong> — morning edge summary (with NBM shift check), settlement digest, collector health, backfill check, price move (with multi-bracket sweep detection), and conviction (first bracket to cross 70%). Paper nudges only — no execution from core repo. <strong>Next:</strong> run ~20–30 days and evaluate v0 gate.</div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
@@ -519,6 +519,14 @@ section { margin-bottom: 8px }
               <div class="task-note">Bracket table on stderr after JSON (<code>model_prob</code> / <code>market_price</code> / outcome column placeholder until backfill). Telegram / agent digests are ops-layer; core script output stays stderr + SQLite.</div>
             </div>
           </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">V0 — data quality check on <code>wind_speed_kt</code>, <code>overnight_low_f</code>, <code>record_high_f</code></div>
+              <div class="task-note"><strong>Backlog — do soon.</strong> Run within the first few days of deploy (not deferred). <strong>Who writes what:</strong> <code>morning_model.py</code> → <code>logger.log_morning_run</code> fills morning rows from the NWS grid (7am wind speed, <code>minTemperature</code> overnight low, <code>record_high_f</code> when <code>records.json</code> exists). <code>collector.py</code> also writes the same three columns on <strong>intraday</strong> rows: <code>wind_speed_kt</code> from latest <code>metar_observations</code>, <code>overnight_low_f</code> and <code>record_high_f</code> copied from the latest morning snapshot for that <code>event_date</code> — verify both pipelines together. Checks: (1) Morning — grid wind ~5–15 kt typical NYC; overnight low vs cell window (stderr log + METAR/CLI sanity); record NULL until records file. (2) Intraday — METAR wind vs grid (different sources); NULL overnight/record when morning has not run yet. (3) Datasette canned query or small script: fill rates, histograms, optional grid-vs-METAR comparison.</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -544,6 +552,15 @@ section { margin-bottom: 8px }
               <div class="task-note"><strong>Implemented:</strong> each collector run pulls fresh NBM p10/p50/p90 for each open <code>event_date</code>, computes <code>model_prob</code> with the same <code>build_zones()</code> / <code>bracket_prob()</code> math, and logs it into <code>bracket_snapshots</code> alongside prices. <code>nbm_cycle</code> is logged for traceability. This is analysis-only and does not change v0 evaluation gates.</div>
             </div>
           </div>
+
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">V0 — QA: intraday <code>wind_speed_kt</code> / <code>overnight_low_f</code> / <code>record_high_f</code> (collector path)</div>
+              <div class="task-note"><strong>Same effort as LOG phase task.</strong> Intraday rows get <code>wind_speed_kt</code> from <code>metar_observations</code> (after each run&apos;s METAR backfill) and copy <code>overnight_low_f</code> / <code>record_high_f</code> from the latest <code>snapshot_type=morning</code> row per <code>event_date</code>. Validate soon after ship alongside morning_model/logger — see LOG task &quot;data quality check&quot; for the full checklist.</div>
+            </div>
+          </div>
+
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
@@ -674,10 +691,17 @@ section { margin-bottom: 8px }
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
-            <div class="task-check"></div>
+            <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text">Cron + Paul: proactive Telegram on market moves and opportunities</div>
-              <div class="task-note"><strong>Ops layer (v0).</strong> Schedule the Paul agent (or a thin wrapper) on cron — e.g. after each collector run, hourly, or on triggers — to read SQLite (read-only) and optionally collector logs. Notify on: large |edge| or edge change vs prior snapshot, meaningful Kalshi price move between ticks, new DSM/CLI rows (information events), digest after morning_model. All numeric gates are <strong>PROVISIONAL</strong>. Purpose is research + paper nudges, not automated execution from this repository.</div>
+              <div class="task-text done">Cron + Paul: proactive Telegram on market moves and opportunities</div>
+              <div class="task-note"><strong>Live.</strong> Six alert scripts running on VM cron, all sending to the Telegram group via Bot API (no OpenClaw dependency):<br><br>
+<strong>paul_morning_edge.py</strong> — 7:15am ET (11:15 UTC). Today's morning bracket table (model / market / edge per bracket) + NBM p50 shift check vs earliest intraday for same event_date. Threshold: 2°F <strong>PROVISIONAL</strong>.<br><br>
+<strong>paul_settlement.py</strong> — 10:15am ET (14:15 UTC). Yesterday's settlement: winning bracket, model vs market prob, running Brier score.<br><br>
+<strong>paul_collector_health.py</strong> — Every 2 hours (12/14/16/18/20/22/00 UTC). Silent if last intraday snapshot &lt;90 min old; alerts if stalled.<br><br>
+<strong>paul_backfill_check.py</strong> — 10:00am ET (14:00 UTC). Silent if all past event_dates have <code>actual_max_f</code>; alerts with list of missing dates.<br><br>
+<strong>paul_price_move.py</strong> — Every 30 min, same cadence as collector. Two alert types: (1) individual bracket move ≥15¢ <strong>PROVISIONAL</strong>; (2) sweep alert if 3+ brackets each move ≥10¢ in the same window (redistribution = new information). Includes Paul narrative on whether market is moving toward or away from model.<br><br>
+<strong>paul_conviction.py</strong> — Every 30 min, same cadence as collector. Fires once per event_date/bracket when market_price first crosses 70%. Checks full history to avoid re-alerting after collector gaps.<br><br>
+All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only — no order execution from core repo in v0.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -905,8 +929,8 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
-        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-06 — Morning model automated; Telegram live; Paul proactive crons next</div></div>
-        <div class="dec-why"><code>morning_model.py</code> runs on VM crontab (~7am ET) via shell wrapper (venv + logging). Datasette and Telegram are operational. Proactive &quot;market movement / opportunity&quot; notifications are delegated to <strong>Paul</strong> on its own cron schedule reading the SQLite DB (and optionally logs); alert rules stay PROVISIONAL and do not place trades from core repo code. v0 evaluation remains <code>snapshot_type=&apos;morning&apos;</code> only.</div>
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-06 — Paul alert crons live; v0 pipeline complete</div></div>
+        <div class="dec-why"><code>morning_model.py</code> runs on VM crontab (~7am ET) via shell wrapper (venv + logging). Datasette and Telegram are operational. Six Paul alert scripts run on VM cron reading SQLite directly and posting to Telegram via Bot API (no OpenClaw dependency): morning edge summary (with NBM shift check), settlement digest, collector health check, backfill check, price move with multi-bracket sweep detection, and conviction (first bracket crossing 70%). All alert thresholds are PROVISIONAL. No order execution from core repo in v0 — alerts support paper discipline only. v0 evaluation remains <code>snapshot_type=&apos;morning&apos;</code> only. Next: run ~20–30 days, evaluate v0 gate.</div>
       </div>
 
       <div class="dec">
