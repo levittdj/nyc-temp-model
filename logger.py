@@ -841,7 +841,8 @@ def fetch_knyc_cli_max(target_date: date) -> float:
     from urllib.request import Request, urlopen
 
     DAILY_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/daily.py"
-    station = "KNYC"
+    # IEM daily.py requires station=NYC (not KNYC) and sts/ets time bounds
+    station = "NYC"
     network = "NY_ASOS"
     daily_error: Optional[str] = None
     rows: List[Dict[str, str]] = []
@@ -854,6 +855,8 @@ def fetch_knyc_cli_max(target_date: date) -> float:
             "month": target_date.month,
             "day": target_date.day,
             "format": "csv",
+            "sts": f"{target_date}T00:00:00",
+            "ets": f"{target_date}T23:59:59",
         }
         url = f"{DAILY_URL}?{urlencode(params)}"
         req = Request(url, headers={"User-Agent": "(nyc-temp-model, local)"})
