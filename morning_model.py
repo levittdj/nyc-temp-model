@@ -21,7 +21,7 @@ import math
 import re
 import statistics
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -895,6 +895,152 @@ def fetch_ensemble_spread(lat: float, lon: float, event_date: date) -> dict[str,
     return out
 
 
+def fetch_hrrr_forecast(
+    lat: float,
+    lon: float,
+    event_date: date,
+    as_of_utc: Optional[datetime] = None,
+) -> Optional[dict[str, Any]]:
+    """
+    Open-Meteo HRRR CONUS hourly temperature forecast.
+
+    Collector-only (intraday modeling); morning_model stays pure NBM in v0.
+
+    Returns:
+      {"hrrr_max_f": float, "hrrr_current_hour_f": float, "hrrr_model_run": str}
+    or None on failure.
+    """
+    try:
+        if as_of_utc is None:
+            as_of_utc = datetime.now(timezone.utc)
+        if as_of_utc.tzinfo is None:
+            as_of_utc = as_of_utc.replace(tzinfo=timezone.utc)
+        z = _zone()
+        url = (
+            "https://api.open-meteo.com/v1/gfs"
+            f"?latitude={lat}&longitude={lon}"
+            "&hourly=temperature_2m"
+            "&models=hrrr_conus"
+            "&timezone=America%2FNew_York"
+            "&forecast_days=2"
+        )
+        j = _http_json(url)
+        hourly = j.get("hourly") or {}
+        times = hourly.get("time") or []
+        temps = hourly.get("temperature_2m") or []
+        if not isinstance(times, list) or not isinstance(temps, list) or len(times) != len(temps):
+            return None
+        units = (j.get("hourly_units") or {}).get("temperature_2m") or ""
+        is_c = "°C" in str(units) or str(units).strip() == "C"
+
+        vals_f: list[float] = []
+        best_now: Optional[Tuple[datetime, float]] = None
+        as_of_local = as_of_utc.astimezone(z)
+        for t_raw, v_raw in zip(times, temps):
+            if v_raw is None:
+                continue
+            try:
+                v = float(v_raw)
+            except (TypeError, ValueError):
+                continue
+            try:
+                dt_local = datetime.fromisoformat(str(t_raw))
+            except ValueError:
+                continue
+            if dt_local.tzinfo is None:
+                dt_local = dt_local.replace(tzinfo=z)
+            else:
+                dt_local = dt_local.astimezone(z)
+
+            v_f = _c_to_f(v) if is_c else v
+            if dt_local.date() == event_date:
+                vals_f.append(v_f)
+            if dt_local <= as_of_local:
+                if best_now is None or dt_local > best_now[0]:
+                    best_now = (dt_local, v_f)
+        if not vals_f or best_now is None:
+            return None
+        return {
+            "hrrr_max_f": float(max(vals_f)),
+            "hrrr_current_hour_f": float(best_now[1]),
+            "hrrr_model_run": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+    except Exception:
+        return None
+
+
+def truncate_and_renormalize(rows: list[BracketRow], observed_max_f: float) -> list[BracketRow]:
+    """
+    Hard-floor by observed running max: brackets entirely below observed_max are dead.
+
+    Continuity convention: a bracket with upper_f <= observed_max + 0.5 is impossible
+    once METAR has observed observed_max as the running high.
+    """
+    cutoff = float(observed_max_f) + 0.5
+    staged: list[BracketRow] = []
+    total = 0.0
+    for r in rows:
+        p = float(r.model_prob)
+        if r.upper_f <= cutoff:
+            p = 0.0
+        total += p
+        staged.append(replace(r, model_prob=p))
+    assert total > 0.0, "truncate_and_renormalize: all bracket mass zeroed; check tail bracket bounds"
+    out: list[BracketRow] = []
+    for r in staged:
+        p = r.model_prob / total if r.model_prob > 0 else 0.0
+        out.append(replace(r, model_prob=p, edge=p - r.market_price))
+    return out
+
+
+def _shift_zone(z: ZoneModel, shift_f: float) -> ZoneModel:
+    return ZoneModel(
+        L=z.L + shift_f,
+        p10=z.p10 + shift_f,
+        p50=z.p50 + shift_f,
+        p90=z.p90 + shift_f,
+        U=z.U + shift_f,
+        p25=(z.p25 + shift_f) if z.p25 is not None else None,
+        p75=(z.p75 + shift_f) if z.p75 is not None else None,
+    )
+
+
+def apply_hrrr_shift(
+    z: ZoneModel,
+    hrrr_max_f: float,
+    nbm_p50_adj: float,
+    rows: list[BracketRow],
+    shift_threshold_f: float = 1.0,  # PROVISIONAL
+    blend_weight: float = 0.5,  # PROVISIONAL
+) -> list[BracketRow]:
+    """
+    Soft shift of the CDF center based on HRRR-implied daily max.
+
+    shift_f = hrrr_max_f - nbm_p50_adj. If |shift_f| < threshold: no change.
+    Otherwise, shift all CDF knots by shift_f * blend_weight and recompute bracket probs.
+    """
+    shift_f = float(hrrr_max_f) - float(nbm_p50_adj)
+    if abs(shift_f) < float(shift_threshold_f):
+        return rows
+    applied = shift_f * float(blend_weight)
+    z2 = _shift_zone(z, applied)
+    out: list[BracketRow] = []
+    for r in rows:
+        mp = bracket_prob(z2, r.lower_f, r.upper_f)
+        out.append(replace(r, model_prob=mp, edge=mp - r.market_price))
+    # Renormalize if full partition present.
+    has_low_tail = any(math.isinf(r.lower_f) and r.lower_f < 0 for r in out)
+    has_high_tail = any(math.isinf(r.upper_f) and r.upper_f > 0 for r in out)
+    if has_low_tail and has_high_tail:
+        total = sum(r.model_prob for r in out)
+        if total > 0:
+            out = [
+                replace(r, model_prob=(r.model_prob / total), edge=(r.model_prob / total) - r.market_price)
+                for r in out
+            ]
+    return out
+
+
 def fetch_live_nbm_fahrenheit(lat: float, lon: float, target: date) -> tuple[tuple[float, float, float], dict[str, Any]]:
     """NBP text TXNP1/5/9 in °F plus metadata."""
     grid_url = nws_grid_url_for_point(lat, lon)
@@ -910,6 +1056,15 @@ def synthetic_self_test() -> None:
     assert abs(zone_cdf(z, 60.0) - 0.5) < 1e-9
     z5 = build_zones(48.0, 60.0, 72.0, 54.0, 66.0)
     assert abs(zone_cdf(z5, 60.0) - 0.5) < 1e-6
+    # Truncation renormalizes and only kills fully-below brackets
+    rows2 = [
+        BracketRow("t1", "x", "<62", float("-inf"), 61.5, 0.1, 0.1, 0.0),
+        BracketRow("b", "x", "62-63", 61.5, 63.5, 0.1, 0.2, 0.1),
+        BracketRow("t2", "x", ">69", 69.5, float("inf"), 0.1, 0.7, 0.6),
+    ]
+    tr = truncate_and_renormalize(rows2, observed_max_f=62.0)
+    assert tr[0].model_prob == 0.0
+    assert abs(sum(r.model_prob for r in tr) - 1.0) < 1e-9
     p_mid = bracket_prob(z, 59.0, 61.0)
     assert 0.05 < p_mid < 0.25, p_mid
     p_tail = bracket_prob(z, 75.0, float("inf"))

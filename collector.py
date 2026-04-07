@@ -29,6 +29,7 @@ from logger import (
     latest_metar_observation_ts_utc,
     latest_metar_wind_speed_kt,
     latest_morning_overnight_and_record_high,
+    running_observed_max_f,
     log_cli_observation,
     log_dsm_observation,
     log_metar_observations,
@@ -42,10 +43,13 @@ from morning_model import (
     bracket_prob,
     build_zones,
     fetch_ensemble_spread,
+    fetch_hrrr_forecast,
     fetch_live_nbm_fahrenheit,
     kalshi_integration_bounds,
     kalshi_mid_price,
     load_config,
+    apply_hrrr_shift,
+    truncate_and_renormalize,
 )
 
 try:
@@ -340,7 +344,7 @@ def _rows_for_event(
     pct_f_raw: tuple[float, float, float],
     markets: list[dict[str, Any]],
     nbp_meta: Optional[dict[str, Any]] = None,
-) -> list[BracketRow]:
+) -> tuple[list[BracketRow], Any, float]:
     """
     Compute model_prob for each bracket market for this event_date using shared zone math.
     """
@@ -389,7 +393,7 @@ def _rows_for_event(
         )
     # Sort and sanity check via the same conventions as morning_model (when full partition present)
     rows.sort(key=lambda r: r.lower_f if r.lower_f != float("-inf") else -999)
-    return rows
+    return rows, z, p50b
 
 
 def main() -> int:
@@ -481,9 +485,11 @@ def main() -> int:
         raise SystemExit(f"No open {args.series} markets with parseable event dates.")
 
     # For each open event_date, compute the appropriate NBM triple for that date.
+    ny_tz = ZoneInfo("America/New_York")
+    ny_today = snapshot_ts.astimezone(ny_tz).date()
     for ev in sorted(by_event.keys()):
         pct_f_raw, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, ev)
-        rows = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta)
+        rows, z, nbm_p50_adj = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta)
         # Intraday wind_speed_kt is METAR-derived (latest obs ≤ snapshot); morning_model uses NWS grid — different sources.
         wkt = latest_metar_wind_speed_kt(args.db, snapshot_ts, station="KNYC")
         olow, rhf = latest_morning_overnight_and_record_high(args.db, ev)
@@ -492,6 +498,47 @@ def main() -> int:
             ens = fetch_ensemble_spread(KNYC_LAT, KNYC_LON, ev)
         except Exception:
             pass
+
+        # HRRR shift: only for today/tomorrow (Open-Meteo forecast_days=2)
+        hrrr = None
+        hrrr_max_f: Optional[float] = None
+        hrrr_shift_applied_f: Optional[float] = None
+        if ev in (ny_today, ny_today + timedelta(days=1)):
+            hrrr = fetch_hrrr_forecast(KNYC_LAT, KNYC_LON, ev, as_of_utc=snapshot_ts)
+        if hrrr and hrrr.get("hrrr_max_f") is not None:
+            try:
+                hrrr_max_f = float(hrrr["hrrr_max_f"])
+            except (TypeError, ValueError):
+                hrrr_max_f = None
+        if hrrr_max_f is not None:
+            shift_f = hrrr_max_f - float(nbm_p50_adj)
+            # PROVISIONAL: abs(shift)<1F -> no change, but log 0.0; otherwise apply half-weight shift
+            if abs(shift_f) < 1.0:
+                hrrr_shift_applied_f = 0.0
+            else:
+                hrrr_shift_applied_f = shift_f * 0.5
+                rows = apply_hrrr_shift(z, hrrr_max_f, nbm_p50_adj, rows)
+                print(
+                    f"collector: HRRR shift for {ev.isoformat()}: hrrr_max={hrrr_max_f:.1f}F vs nbm_p50={nbm_p50_adj:.1f}F, "
+                    f"shift={shift_f:+.1f}F applied={hrrr_shift_applied_f:+.1f}F"
+                )
+
+        # Observed-max truncation: only for today's market
+        observed_max_f_at_snapshot: Optional[float] = None
+        if ev == ny_today:
+            try:
+                observed_max_f_at_snapshot = running_observed_max_f(args.db, ev, snapshot_ts, station="KNYC")
+            except Exception:
+                observed_max_f_at_snapshot = None
+            if observed_max_f_at_snapshot is not None:
+                before = sum(1 for r in rows if r.model_prob == 0.0)
+                rows = truncate_and_renormalize(rows, observed_max_f_at_snapshot)
+                after = sum(1 for r in rows if r.model_prob == 0.0)
+                print(
+                    f"collector: truncation for {ev.isoformat()}: observed_max={observed_max_f_at_snapshot:.1f}F, "
+                    f"{max(0, after - before)} brackets zeroed"
+                )
+
         log_morning_run(
             args.db,
             ev,
@@ -509,6 +556,9 @@ def main() -> int:
             nbp_meta=nbp_meta,
             records_path=Path(__file__).resolve().parent / "records.json",
             ensemble_snap=ens,
+            observed_max_f_at_snapshot=observed_max_f_at_snapshot,
+            hrrr_max_f=hrrr_max_f,
+            hrrr_shift_applied_f=hrrr_shift_applied_f,
         )
 
     print(f"collector: wrote intraday snapshots at {snapshot_ts.isoformat()} for {len(by_event)} event_date(s)")

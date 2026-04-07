@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     ens_gefs_p50_f REAL,
     ens_ecmwf_p50_f REAL,
 
+    observed_max_f_at_snapshot REAL,
+    hrrr_max_f REAL,
+    hrrr_shift_applied_f REAL,
+
     PRIMARY KEY (event_date, snapshot_ts, snapshot_type, bracket_label)
 );
 
@@ -125,6 +129,9 @@ _BRACKET_SNAPSHOT_ALTER: Tuple[Tuple[str, str], ...] = (
     ("ens_ecmwf_sd_f", "REAL"),
     ("ens_gefs_p50_f", "REAL"),
     ("ens_ecmwf_p50_f", "REAL"),
+    ("observed_max_f_at_snapshot", "REAL"),
+    ("hrrr_max_f", "REAL"),
+    ("hrrr_shift_applied_f", "REAL"),
 )
 
 
@@ -390,6 +397,54 @@ def latest_metar_wind_speed_kt(
         conn.close()
 
 
+def _nhigh_metar_window_utc(event_date: date, station_tz: str = "America/New_York") -> Tuple[datetime, datetime]:
+    """
+    UTC window for the Kalshi NHIGH daily-high observation day for a local event_date.
+
+    Spec: 01:00 local on event_date through 01:00 local on the next day (end exclusive).
+    ZoneInfo handles DST transitions so UTC bounds are correct in EDT vs EST.
+    """
+    z = ZoneInfo(station_tz)
+    start_local = datetime(event_date.year, event_date.month, event_date.day, 1, 0, tzinfo=z)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+
+def running_observed_max_f(
+    db_path: Path,
+    event_date: date,
+    as_of_utc: datetime,
+    station: str = "KNYC",
+) -> Optional[float]:
+    """
+    Running observed maximum temperature (°F) from METAR up to as_of_utc within the NHIGH window.
+    Returns None when no observations exist yet.
+    """
+    if as_of_utc.tzinfo is None:
+        as_of_utc = as_of_utc.replace(tzinfo=timezone.utc)
+    win_start_utc, win_end_utc = _nhigh_metar_window_utc(event_date)
+    if as_of_utc <= win_start_utc:
+        return None
+    cap_end = min(as_of_utc, win_end_utc)
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        row = conn.execute(
+            """
+            SELECT MAX(tmpf)
+            FROM metar_observations
+            WHERE station = ?
+              AND tmpf IS NOT NULL
+              AND observation_ts >= ?
+              AND observation_ts < ?
+            """,
+            (station, _utc_z(win_start_utc), _utc_z(cap_end)),
+        ).fetchone()
+        return float(row[0]) if row and row[0] is not None else None
+    finally:
+        conn.close()
+
+
 def latest_morning_overnight_and_record_high(
     db_path: Path,
     event_date: date,
@@ -526,6 +581,9 @@ def log_morning_run(
     nbp_meta: Optional[Dict[str, Any]] = None,
     records_path: Optional[Path] = None,
     ensemble_snap: Optional[Dict[str, Any]] = None,
+    observed_max_f_at_snapshot: Optional[float] = None,
+    hrrr_max_f: Optional[float] = None,
+    hrrr_shift_applied_f: Optional[float] = None,
 ) -> None:
     """Insert one snapshot (one row per bracket) for a single event_date."""
     p10, p50, p90 = pct_f_raw
@@ -609,8 +667,9 @@ def log_morning_run(
                     record_high_f, record_prox_flag,
                     market_open_ts, hours_since_open, hours_to_settle,
                     ens_gefs_spread_f, ens_gefs_sd_f, ens_ecmwf_spread_f, ens_ecmwf_sd_f,
-                    ens_gefs_p50_f, ens_ecmwf_p50_f
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ens_gefs_p50_f, ens_ecmwf_p50_f,
+                    observed_max_f_at_snapshot, hrrr_max_f, hrrr_shift_applied_f
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     event_date.isoformat(),
@@ -655,6 +714,9 @@ def log_morning_run(
                     ens_ecmwf_sd_f,
                     ens_gefs_p50_f,
                     ens_ecmwf_p50_f,
+                    observed_max_f_at_snapshot,
+                    hrrr_max_f,
+                    hrrr_shift_applied_f,
                 ),
             )
         conn.commit()

@@ -148,3 +148,67 @@ databases:
         GROUP BY event_date
         HAVING MAX(ens_gefs_spread_f) IS NOT NULL OR MAX(ens_ecmwf_spread_f) IS NOT NULL
         ORDER BY event_date DESC
+
+      intraday_brier_by_hour: |-
+        SELECT
+          CAST(ROUND((24 - hours_to_settle) / 1) AS INTEGER) AS approx_hour_et,
+          COUNT(*) AS n_brackets,
+          COUNT(DISTINCT event_date) AS n_days,
+          ROUND(AVG((model_prob - outcome) * (model_prob - outcome)), 6) AS brier_score,
+          ROUND(AVG(ABS(edge)), 4) AS mean_abs_edge
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'intraday'
+          AND outcome IS NOT NULL
+        GROUP BY approx_hour_et
+        ORDER BY approx_hour_et
+
+      morning_vs_intraday_brier: |-
+        SELECT
+          m.event_date,
+          ROUND(AVG((m.model_prob - m.outcome) * (m.model_prob - m.outcome)), 6) AS morning_brier,
+          ROUND(AVG((i.model_prob - i.outcome) * (i.model_prob - i.outcome)), 6) AS best_intraday_brier,
+          ROUND(AVG((m.model_prob - m.outcome) * (m.model_prob - m.outcome)), 6) -
+            ROUND(AVG((i.model_prob - i.outcome) * (i.model_prob - i.outcome)), 6) AS brier_improvement
+        FROM bracket_snapshots m
+        JOIN (
+          SELECT event_date, bracket_label, model_prob, outcome,
+                 ROW_NUMBER() OVER (PARTITION BY event_date, bracket_label ORDER BY snapshot_ts DESC) AS rn
+          FROM bracket_snapshots
+          WHERE snapshot_type = 'intraday'
+            AND outcome IS NOT NULL
+            AND hours_to_settle BETWEEN 3 AND 8
+        ) i
+          ON m.event_date = i.event_date AND m.bracket_label = i.bracket_label AND i.rn = 1
+        WHERE m.snapshot_type = 'morning'
+          AND m.outcome IS NOT NULL
+        GROUP BY m.event_date
+        ORDER BY m.event_date DESC
+
+      truncation_impact: |-
+        SELECT
+          event_date,
+          snapshot_ts,
+          observed_max_f_at_snapshot,
+          SUM(CASE WHEN model_prob = 0.0 AND market_price > 0.01 THEN market_price ELSE 0 END) AS dead_bracket_mkt_value,
+          SUM(CASE WHEN model_prob = 0.0 THEN 1 ELSE 0 END) AS n_zeroed_brackets,
+          COUNT(*) AS n_total_brackets
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'intraday'
+          AND observed_max_f_at_snapshot IS NOT NULL
+        GROUP BY event_date, snapshot_ts
+        ORDER BY event_date DESC, snapshot_ts DESC
+
+      hrrr_vs_nbm_accuracy: |-
+        SELECT
+          event_date,
+          MAX(nbm_p50_adj) AS nbm_p50,
+          MAX(hrrr_max_f) AS hrrr_max,
+          MAX(actual_max_f) AS actual,
+          ROUND(ABS(MAX(actual_max_f) - MAX(nbm_p50_adj)), 1) AS nbm_error,
+          ROUND(ABS(MAX(actual_max_f) - MAX(hrrr_max_f)), 1) AS hrrr_error
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'intraday'
+          AND actual_max_f IS NOT NULL
+          AND hrrr_max_f IS NOT NULL
+        GROUP BY event_date
+        ORDER BY event_date DESC
