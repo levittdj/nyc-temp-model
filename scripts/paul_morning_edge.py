@@ -50,12 +50,7 @@ prev = conn.execute('''
     ORDER BY snapshot_ts DESC LIMIT 1
 ''', (today, today)).fetchone()
 
-if not prev:
-    prev = conn.execute('''
-        SELECT snapshot_ts, nbm_p50_adj FROM bracket_snapshots
-        WHERE snapshot_type='intraday' AND event_date=?
-        ORDER BY snapshot_ts ASC LIMIT 1
-    ''', (today,)).fetchone()
+# No intraday fallback — shift vs stale open price is meaningless
 
 if prev and prev[1] is not None:
     shift = p50 - prev[1]
