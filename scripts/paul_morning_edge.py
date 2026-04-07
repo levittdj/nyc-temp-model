@@ -41,16 +41,13 @@ lines.append('')
 lines.append('Best:  ' + best[0] + ' ' + ('+' if best[3]>0 else '') + str(round(best[3]*100, 1)) + '%')
 lines.append('Worst: ' + worst[0] + ' ' + ('+' if worst[3]>0 else '') + str(round(worst[3]*100, 1)) + '%')
 
-# NBM shift vs previous morning run
+# NBM shift: today's morning p50 vs yesterday's morning p50 for the same event_date
+yesterday = (date.today() - timedelta(days=1)).isoformat()
 prev = conn.execute('''
     SELECT snapshot_ts, nbm_p50_adj FROM bracket_snapshots
-    WHERE snapshot_type='morning' AND event_date=? AND snapshot_ts < (
-        SELECT MAX(snapshot_ts) FROM bracket_snapshots WHERE snapshot_type='morning' AND event_date=?
-    )
+    WHERE snapshot_type='morning' AND event_date=?
     ORDER BY snapshot_ts DESC LIMIT 1
-''', (today, today)).fetchone()
-
-# No intraday fallback — shift vs stale open price is meaningless
+''', (yesterday,)).fetchone()
 
 if prev and prev[1] is not None:
     shift = p50 - prev[1]
