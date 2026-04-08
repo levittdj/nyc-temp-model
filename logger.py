@@ -132,6 +132,7 @@ _BRACKET_SNAPSHOT_ALTER: Tuple[Tuple[str, str], ...] = (
     ("observed_max_f_at_snapshot", "REAL"),
     ("hrrr_max_f", "REAL"),
     ("hrrr_shift_applied_f", "REAL"),
+    ("metar_new_obs", "INTEGER"),
 )
 
 
@@ -584,6 +585,7 @@ def log_morning_run(
     observed_max_f_at_snapshot: Optional[float] = None,
     hrrr_max_f: Optional[float] = None,
     hrrr_shift_applied_f: Optional[float] = None,
+    metar_new_obs: bool = False,
 ) -> None:
     """Insert one snapshot (one row per bracket) for a single event_date."""
     p10, p50, p90 = pct_f_raw
@@ -668,8 +670,9 @@ def log_morning_run(
                     market_open_ts, hours_since_open, hours_to_settle,
                     ens_gefs_spread_f, ens_gefs_sd_f, ens_ecmwf_spread_f, ens_ecmwf_sd_f,
                     ens_gefs_p50_f, ens_ecmwf_p50_f,
-                    observed_max_f_at_snapshot, hrrr_max_f, hrrr_shift_applied_f
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    observed_max_f_at_snapshot, hrrr_max_f, hrrr_shift_applied_f,
+                    metar_new_obs
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     event_date.isoformat(),
@@ -717,6 +720,7 @@ def log_morning_run(
                     observed_max_f_at_snapshot,
                     hrrr_max_f,
                     hrrr_shift_applied_f,
+                    1 if metar_new_obs else 0,
                 ),
             )
         conn.commit()

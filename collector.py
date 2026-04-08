@@ -407,10 +407,12 @@ def main() -> int:
     nbm_bias = load_config(args.config)
 
     # KNYC METAR 5-minute capture via 30-minute backfill gap pull.
+    metar_new_obs = False
     try:
         today_utc = snapshot_ts.date()
         day_start_utc = datetime(today_utc.year, today_utc.month, today_utc.day, 6, 0, tzinfo=timezone.utc)
-        last_obs = latest_metar_observation_ts_utc(args.db, today_utc, station="KNYC")
+        prev_metar_ts = latest_metar_observation_ts_utc(args.db, today_utc, station="KNYC")
+        last_obs = prev_metar_ts
         sts_utc = last_obs if last_obs is not None else day_start_utc
         if sts_utc < day_start_utc:
             sts_utc = day_start_utc
@@ -419,6 +421,7 @@ def main() -> int:
             sts_utc = snapshot_ts - timedelta(hours=2)
         metar_rows = _fetch_knyc_metar_observations(sts_utc, snapshot_ts)
         inserted = log_metar_observations(args.db, metar_rows, snapshot_ts, station="KNYC")
+        metar_new_obs = inserted > 0
         print(
             f"collector: metar backfill {sts_utc.strftime('%Y-%m-%dT%H:%M:%SZ')} -> "
             f"{snapshot_ts.strftime('%Y-%m-%dT%H:%M:%SZ')} rows={len(metar_rows)} inserted={inserted}"
@@ -559,6 +562,7 @@ def main() -> int:
             observed_max_f_at_snapshot=observed_max_f_at_snapshot,
             hrrr_max_f=hrrr_max_f,
             hrrr_shift_applied_f=hrrr_shift_applied_f,
+            metar_new_obs=metar_new_obs,
         )
 
     print(f"collector: wrote intraday snapshots at {snapshot_ts.isoformat()} for {len(by_event)} event_date(s)")

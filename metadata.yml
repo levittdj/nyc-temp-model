@@ -212,3 +212,30 @@ databases:
           AND hrrr_max_f IS NOT NULL
         GROUP BY event_date
         ORDER BY event_date DESC
+
+      metar_market_reaction: |-
+        SELECT
+          a.event_date,
+          a.snapshot_ts AS metar_tick,
+          a.bracket_label,
+          a.observed_max_f_at_snapshot AS running_high,
+          prev.snapshot_ts AS prior_tick,
+          ROUND(a.market_price - prev.market_price, 3) AS price_delta,
+          ROUND(a.edge, 3) AS edge_after,
+          a.market_price AS mkt_after,
+          prev.market_price AS mkt_before
+        FROM bracket_snapshots a
+        JOIN bracket_snapshots prev
+          ON prev.event_date = a.event_date
+          AND prev.bracket_label = a.bracket_label
+          AND prev.snapshot_type = 'intraday'
+          AND prev.snapshot_ts = (
+            SELECT MAX(snapshot_ts) FROM bracket_snapshots
+            WHERE event_date = a.event_date
+              AND bracket_label = a.bracket_label
+              AND snapshot_type = 'intraday'
+              AND snapshot_ts < a.snapshot_ts
+          )
+        WHERE a.metar_new_obs = 1
+          AND a.snapshot_type = 'intraday'
+        ORDER BY a.event_date DESC, a.snapshot_ts DESC, a.bracket_label
