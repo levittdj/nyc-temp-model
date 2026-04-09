@@ -297,42 +297,46 @@ def _to_int(v: str) -> Optional[int]:
         return None
 
 
+NOAA_METAR_URL = "https://aviationweather.gov/api/data/metar"
+
+
 def _fetch_knyc_metar_observations(sts_utc: datetime, ets_utc: datetime) -> list[dict[str, Any]]:
+    """Fetch KNYC METAR observations from NOAA Aviation Weather Center (primary source).
+    Returns rows with the same shape as the old IEM-based fetch."""
+    import json
+    import math
     from urllib.parse import urlencode
     from urllib.request import Request, urlopen
 
-    params = [
-        ("station", "KNYC"),
-        ("data", "tmpf"),
-        ("data", "drct"),
-        ("data", "sknt"),
-        ("data", "skyc1"),
-        ("tz", "UTC"),
-        ("format", "onlycomma"),
-        ("sts", sts_utc.strftime("%Y-%m-%dT%H:%M:%SZ")),
-        ("ets", ets_utc.strftime("%Y-%m-%dT%H:%M:%SZ")),
-    ]
-    url = f"{ASOS_URL}?{urlencode(params)}"
+    if ets_utc.tzinfo is None:
+        ets_utc = ets_utc.replace(tzinfo=timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+    hours_back = math.ceil((now_utc - sts_utc).total_seconds() / 3600) + 1
+    hours_back = max(hours_back, 1)
+
+    params = {"ids": "KNYC", "format": "json", "hours": hours_back}
+    url = f"{NOAA_METAR_URL}?{urlencode(params)}"
     req = Request(url, headers={"User-Agent": "(nyc-temp-model, local)"})
     with urlopen(req, timeout=60) as resp:
-        raw = resp.read().decode("utf-8", errors="replace")
-    if raw.lstrip().startswith("["):
-        return []
+        records = json.loads(resp.read().decode("utf-8", errors="replace"))
 
     out: list[dict[str, Any]] = []
-    rdr = csv.DictReader(io.StringIO(raw))
-    for rec in rdr:
-        t_raw = rec.get("valid") or rec.get("valid(UTC)") or ""
-        obs_ts = _parse_utc_valid_ts(t_raw)
-        if obs_ts is None:
+    for rec in records:
+        report_time = rec.get("reportTime") or rec.get("receiptTime")
+        if not report_time:
             continue
+        obs_ts = datetime.fromisoformat(report_time.replace("Z", "+00:00")).astimezone(timezone.utc)
+        if obs_ts < sts_utc or obs_ts > ets_utc:
+            continue
+        temp_c = rec.get("temp")
+        tmpf = round(temp_c * 9 / 5 + 32, 1) if temp_c is not None else None
         out.append(
             {
                 "observation_ts": obs_ts,
-                "tmpf": _to_float(rec.get("tmpf", "")),
-                "wind_dir_deg": _to_int(rec.get("drct", "")),
-                "wind_speed_kt": _to_int(rec.get("sknt", "")),
-                "sky_cover": (rec.get("skyc1") or "").strip() or None,
+                "tmpf": tmpf,
+                "wind_dir_deg": rec.get("wdir"),
+                "wind_speed_kt": rec.get("wspd"),
+                "sky_cover": rec.get("cover") or None,
             }
         )
     return out

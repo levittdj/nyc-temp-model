@@ -1,4 +1,4 @@
-"""Shared KNYC METAR DB vs IEM freshness check (used by test + Paul)."""
+"""Shared KNYC METAR DB vs NOAA freshness check (used by test + Paul)."""
 from __future__ import annotations
 
 import sqlite3
@@ -48,11 +48,11 @@ def run_metar_freshness(
     db_o = datetime.fromisoformat(str(ts_s).replace("Z", "+00:00"))
     if db_o.tzinfo is None:
         db_o = db_o.replace(tzinfo=timezone.utc)
-    iem = _fetch_knyc_metar_observations(now - timedelta(hours=3), now)
-    if not iem:
-        raise RuntimeError("IEM returned no rows for last 3 hours.")
-    iem.sort(key=lambda r: r["observation_ts"])
-    lat = iem[-1]
+    noaa = _fetch_knyc_metar_observations(now - timedelta(hours=3), now)
+    if not noaa:
+        raise RuntimeError("NOAA returned no rows for last 3 hours.")
+    noaa.sort(key=lambda r: r["observation_ts"])
+    lat = noaa[-1]
     lag_m = (lat["observation_ts"] - db_o).total_seconds() / 60.0
     behind = max(0.0, lag_m)
     stale = behind >= lag_warn_minutes
@@ -62,8 +62,8 @@ def run_metar_freshness(
         "db_tmpf": tf,
         "db_wind_kt": wk,
         "db_sky": sk,
-        "iem_latest": lat,
-        "iem_rows": iem,
+        "noaa_latest": lat,
+        "noaa_rows": noaa,
         "lag_minutes": lag_m,
         "stale": stale,
         "exit_code": 0 if not stale else 1,

@@ -47,7 +47,7 @@ def main() -> int:
         return 1
 
     now = out["now"]
-    lat = out["iem_latest"]
+    lat = out["noaa_latest"]
     lag_m = out["lag_minutes"]
     lag_disp = round(max(0.0, lag_m))
     flag = "STALE" if out["stale"] else "OK"
@@ -56,12 +56,12 @@ def main() -> int:
         "METAR freshness — " + z_ts(now),
         "",
         "DB:  " + z_ts(out["db_obs"]) + "  " + _tf(out["db_tmpf"]) + "°F",
-        "IEM: " + z_ts(lat["observation_ts"]) + "  " + _tf(lat.get("tmpf")) + "°F",
+        "NOAA: " + z_ts(lat["observation_ts"]) + "  " + _tf(lat.get("tmpf")) + "°F",
         "Lag: " + str(lag_disp) + " min " + flag,
         "",
-        "IEM last 3 hours:",
+        "NOAA last 3 hours:",
     ]
-    for row in out["iem_rows"]:
+    for row in out["noaa_rows"]:
         lines.append("  " + z_ts(row["observation_ts"]) + "  " + _tf(row.get("tmpf")) + "°F")
 
     try:

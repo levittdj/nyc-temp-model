@@ -24,18 +24,18 @@ def _full(ts, tmpf, wkt, sky):
 def main() -> int:
     r = run_metar_freshness(pythonDB, STATION, LAG_WARN_MINUTES)
     now, db_o = r["now"], r["db_obs"]
-    lat, iem, lag_m = r["iem_latest"], r["iem_rows"], r["lag_minutes"]
+    lat, noaa, lag_m = r["noaa_latest"], r["noaa_rows"], r["lag_minutes"]
     if lag_m > 0.5:
         lag = f"LAG: {round(lag_m):.0f} min — DB is stale. Collector may have missed cycles."
     elif lag_m < -0.5:
-        lag = f"LAG: {round(-lag_m):.0f} min — DB ahead of IEM latest (clock/window?)."
+        lag = f"LAG: {round(-lag_m):.0f} min — DB ahead of NOAA latest (clock/window?)."
     else:
-        lag = "LAG: ~0 min — DB matches IEM latest."
+        lag = "LAG: ~0 min — DB matches NOAA latest."
     print("=== METAR Freshness Check ===\nNow (UTC):      " + z_ts(now) + "\n")
     print(f"DB latest:      {_full(db_o, r['db_tmpf'], r['db_wind_kt'], r['db_sky'])}")
-    print(f"IEM latest:     {_full(lat['observation_ts'], lat.get('tmpf'), lat.get('wind_speed_kt'), lat.get('sky_cover'))}")
-    print("\n" + lag + "\n\nIEM last 3 hours:")
-    for row in iem:
+    print(f"NOAA latest:    {_full(lat['observation_ts'], lat.get('tmpf'), lat.get('wind_speed_kt'), lat.get('sky_cover'))}")
+    print("\n" + lag + "\n\nNOAA last 3 hours:")
+    for row in noaa:
         v = row.get("tmpf")
         print(f"  {z_ts(row['observation_ts'])}  tmpf={v:.1f}" if v is not None else f"  {z_ts(row['observation_ts'])}  tmpf=—")
     return int(r["exit_code"])
