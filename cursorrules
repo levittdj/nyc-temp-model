@@ -77,6 +77,35 @@ At the end of a session (when the user says "wrap up"):
   - Any decisions made during the session noted
   Then output the git commit message to use.
 
+## Paul (ops agent) query rules — enforce these every session
+
+Paul reads and writes Telegram. He queries the SQLite DB directly. He has made
+repeated narration errors from mixing up event_dates. These rules are mandatory.
+
+### Before any bracket analysis
+Always run this first and print the result before touching bracket data:
+```sql
+SELECT DISTINCT event_date, COUNT(*) as n
+FROM bracket_snapshots
+WHERE snapshot_type='intraday'
+ORDER BY event_date DESC LIMIT 5
+```
+Confirm which event_dates are in scope. Never assume.
+
+### Every bracket query must filter by a single event_date
+Never query bracket_snapshots without `WHERE event_date = '...'`.
+Multiple event_dates open simultaneously = completely different markets,
+different bracket ranges, different prices. Mixing them produces nonsense.
+
+### Print rows before narrating
+Print the raw query result first. Then interpret. Never narrate from
+a result you haven't explicitly shown. If something looks surprising,
+re-run the query with explicit event_date before drawing conclusions.
+
+### When describing intraday price moves
+Always state the event_date explicitly. Never say "the 52-53 bracket"
+without first confirming which event_date's market that belongs to.
+
 ## What success looks like in v0
 Not a working betting system. Not profit.
 Success is 20-30 days of logged data that answers:
