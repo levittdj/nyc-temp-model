@@ -573,7 +573,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Open-Meteo ensemble spread (logging only)</div>
-              <div class="task-note"><strong>Implemented:</strong> <code>fetch_ensemble_spread()</code> in <code>morning_model.py</code> — GFS seamless (GEFS-like members) + ECMWF IFS 0.25° ensemble via <code>ensemble-api.open-meteo.com</code>; daily max-T matched to <code>event_date</code> in America/New_York. Logs <code>ens_gefs_*</code> / <code>ens_ecmwf_*</code> columns on morning + intraday rows. Does <strong>not</strong> alter <code>model_prob</code> in v0. VM must allow outbound HTTPS to that host. Datasette: <code>ensemble_spread_vs_abs_error</code> vs NBM spread and settlement error.</div>
+              <div class="task-note"><strong>Implemented:</strong> <code>fetch_ensemble_spread()</code> in <code>morning_model.py</code> — GFS seamless (GEFS-like members) + ECMWF IFS 0.25° ensemble via <code>ensemble-api.open-meteo.com</code>; daily max-T matched to <code>event_date</code> in America/New_York. Logs <code>ens_gefs_*</code> / <code>ens_ecmwf_*</code> columns on morning + intraday rows. Current implementation does <strong>not</strong> alter <code>model_prob</code> (analysis columns only). VM must allow outbound HTTPS to that host. Datasette: <code>ensemble_spread_vs_abs_error</code> vs NBM spread and settlement error.</div>
             </div>
           </div>
 
@@ -581,7 +581,7 @@ section { margin-bottom: 8px }
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Intraday model updates for same-day markets (observed-max truncation + HRRR shift)</div>
-              <div class="task-note"><strong>Implemented:</strong> For <strong>today&apos;s</strong> market only, intraday rows apply a hard-floor from METAR running high: brackets with <code>upper_f &lt;= observed_max + 0.5</code> are set to 0 and remaining mass is renormalized (logged as <code>observed_max_f_at_snapshot</code>). In addition, collector optionally pulls Open-Meteo HRRR CONUS hourly temperature forecasts and computes an implied daily max (<code>hrrr_max_f</code>); when HRRR diverges from <code>nbm_p50_adj</code> by &ge;1°F (<strong>PROVISIONAL</strong>), the CDF knots are shifted by half the disagreement (<strong>PROVISIONAL</strong> blend) and brackets are recomputed (logged as <code>hrrr_shift_applied_f</code>). Morning snapshots remain pure NBM and are the v0 evaluation baseline.</div>
+              <div class="task-note"><strong>Implemented:</strong> For <strong>today&apos;s</strong> market only, intraday rows apply a hard-floor from METAR running high: brackets with <code>upper_f &lt;= observed_max + 0.5</code> are set to 0 and remaining mass is renormalized (logged as <code>observed_max_f_at_snapshot</code>). In addition, collector optionally pulls Open-Meteo HRRR CONUS hourly temperature forecasts and computes an implied daily max (<code>hrrr_max_f</code>); when HRRR diverges from <code>nbm_p50_adj</code> by &ge;1°F (<strong>PROVISIONAL</strong>), the CDF knots are shifted by half the disagreement (<strong>PROVISIONAL</strong> blend) and brackets are recomputed (logged as <code>hrrr_shift_applied_f</code>). <code>snapshot_type=morning</code> rows remain the pre-registered v0 evaluation baseline; their inputs are whatever <code>morning_model.py</code> implements.</div>
             </div>
           </div>
 
@@ -961,6 +961,11 @@ All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only 
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-08 — Model inputs: no NBM-only restriction</div></div>
+        <div class="dec-why">Removed the v0 policy that restricted probability computation to NBM percentiles alone. Additional forecast or observational inputs are allowed when implemented in code; log columns so each snapshot&apos;s provenance is traceable. Pre-registered v0 evaluation still uses <code>snapshot_type=&apos;morning&apos;</code> unless the success gate is explicitly revised. Watch for double-counting when layering signals NBM already encodes.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-06 — Paul alert crons live; v0 pipeline complete</div></div>
         <div class="dec-why"><code>morning_model.py</code> runs on VM crontab (~7am ET) via shell wrapper (venv + logging). Datasette and Telegram are operational. Six Paul alert scripts run on VM cron reading SQLite directly and posting to Telegram via Bot API (no OpenClaw dependency): morning edge summary (with NBM shift check), settlement digest, collector health check, backfill check, price move with multi-bracket sweep detection, and conviction (first bracket crossing 70%). All alert thresholds are PROVISIONAL. No order execution from core repo in v0 — alerts support paper discipline only. v0 evaluation remains <code>snapshot_type=&apos;morning&apos;</code> only. Next: run ~20–30 days, evaluate v0 gate.</div>
       </div>
@@ -977,7 +982,7 @@ All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only 
 
       <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-03-31 — DSM and CLI monitoring added to collector for information timing analysis</div></div>
-        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Logged in <code>cli_observations</code> for information timing; logger backfill uses IEM daily KNYC (see 2026-04-05 MOD).<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>None of these are model inputs in v0. The morning model uses NBM percentiles only. These observational sources are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source.</div>
+        <div class="dec-why">Three NWS data sources identified as market movers:<br><br>1. DSM (Daily Summary Message) -- automated running high/low temps, updates during the day. Research identified a &quot;DSM bot&quot; that reacts instantly to these releases. Logged in <code>dsm_observations</code> table for measuring market reaction speed.<br><br>2. CLI (Climate Report) -- the settlement source. Preliminary versions publish during the afternoon. Final version next morning. Logged in <code>cli_observations</code> for information timing; logger backfill uses IEM daily KNYC (see 2026-04-05 MOD).<br><br>3. KNYC METAR time series -- real-time obs every 5-60 minutes. Already spec&apos;d in collector via Iowa State Mesonet.<br><br>These are logged for: (a) information timing analysis (Q4), (b) edge decay decomposition, (c) reliable outcome backfill from the actual settlement source. They may also feed <code>model_prob</code> when explicitly wired; see 2026-04-08 MOD (NBM-only restriction removed).</div>
       </div>
 
       <div class="dec">

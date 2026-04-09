@@ -430,7 +430,7 @@ def main() -> int:
         # Observational feed should not block core collector run.
         pass
 
-    # Observational feeds for information timing analysis (not model inputs).
+    # Observational feeds (timing / backfill / analysis; may also inform model_prob when wired).
     try:
         dsm_raw = _fetch_nws_product_text(DSM_URL)
         dsm = _parse_dsm_observation(dsm_raw, snapshot_ts)

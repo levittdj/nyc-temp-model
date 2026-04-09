@@ -841,7 +841,7 @@ def _ensemble_member_stats_f(
 
 def fetch_ensemble_spread(lat: float, lon: float, event_date: date) -> dict[str, Any]:
     """
-    Open-Meteo ensemble daily max temperature (logging only — does not modify model_prob in v0).
+    Open-Meteo ensemble daily max temperature (logged alongside snapshots; current callers do not fold it into model_prob).
 
     Pulls GFS seamless (GEFS-like) and ECMWF IFS 0.25° ensemble members; returns a flat dict
     with keys ens_gefs_spread_f, ens_gefs_sd_f, ens_gefs_p50_f, ens_ecmwf_spread_f,
@@ -904,7 +904,7 @@ def fetch_hrrr_forecast(
     """
     Open-Meteo HRRR CONUS hourly temperature forecast.
 
-    Collector-only (intraday modeling); morning_model stays pure NBM in v0.
+    Used by collector intraday paths; morning_model may call this if wired in.
 
     Returns:
       {"hrrr_max_f": float, "hrrr_current_hour_f": float, "hrrr_model_run": str}

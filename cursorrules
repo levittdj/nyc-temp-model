@@ -22,14 +22,13 @@ Do not build anything else until v0 produces evidence.
 ## Hard rules -- never violate these
 
 ### On the model
-- NBM percentiles (p10, p50, p90) are the entire forecast input.
-- Do NOT add separate adjustments for sky cover, wind direction, RH, dewpoint,
-  or any other surface variable. NBM already incorporates those internally.
-  Adding them on top is double-counting.
-- Use asymmetric zone interpolation for bracket probabilities, not a normal
-  distribution fit. Right tail width = p90-p50. Left tail width = p50-p10.
-- Apply nbm_bias (from config.json) as a shift to all percentiles before
-  building zones. This is the only correction applied in v0.
+- NBM percentiles are the default core guidance at KNYC; additional inputs are
+  allowed when deliberately implemented. Log provenance; be explicit about
+  double-counting risk if a feature is already represented inside NBM.
+- Use asymmetric zone interpolation for bracket probabilities from zone knots
+  unless you replace it with a documented alternative.
+- Apply nbm_bias (from config.json) as a shift to NBM percentiles before
+  building zones from those knots (adjust if the input stack changes).
 
 ### On direction
 - Do not assume tails are underpriced.

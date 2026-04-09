@@ -35,11 +35,11 @@ Goal: evidence, not profit.
 4. collector.py    -- intraday snapshots (prices + model_prob); feeds analysis and optional intraday engine (paper first)
 
 ## Key constraints -- do not violate
-- NBM is the full forecast. separate sky cover / wind / RH adjustments as a P1 on top
+- `model_prob` may combine NBM with other forecast or observational inputs when implemented; log enough columns to trace what drove each snapshot, and avoid silent double-counting when a signal is already embedded in NBM.
 - v0 logs everything, filters nothing, applies no thresholds.
 - Log both positive and negative edge. No directional bias in the code.
 - Outcome backfill (actual_max_f + outcome) is as critical as data collection. A day without a backfilled outcome is a wasted day. The backfill cron runs at 8am ET daily. If it fails, manually run `python logger.py YYYY-MM-DD` before the next morning model run.
-- DSM and CLI monitoring in collector.py is for information timing analysis only. These are NOT model inputs. The morning model uses NBM percentiles only. Do not add DSM/CLI data to the probability computation in v0.
+- DSM, CLI, and METAR in collector.py are always logged for timing / backfill / analysis; they may also feed probability computation when explicitly wired in code.
 - Kalshi NHIGH brackets use strict inequality on tails and inclusive between brackets (confirmed from CFTC filing). The continuous model applies a half-degree continuity correction to make boundaries contiguous. model_prob must sum to 1.0 (enforced by assertion).
 - event_date is the calendar date whose high temperature the market settles on. snapshot_ts is when data was captured. These are different and must never be conflated. A 7am run on April 2nd logging April 2nd's market has event_date=2026-04-02 and forecast_lead_hours~7. The same run logging April 3rd's market has event_date=2026-04-03 and forecast_lead_hours~31.
 - v0 evaluation uses snapshot_type='morning' rows ONLY. Intraday snapshots are analysis context, not evaluation data.
