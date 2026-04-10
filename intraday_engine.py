@@ -186,7 +186,12 @@ def generate_signals(
     Signal priority (later overrides earlier per §3.1):
       1. Entry: BUY_YES if edge > ENTRY_EDGE_THRESHOLD, SELL_YES if edge < -threshold.
       2. Dead-bracket: SELL_YES when model_prob==0 and market_price > DEAD_BRACKET_FLOOR.
-         Exempt from time gates.
+         Exempt from time gates.  Reason encodes cause:
+           "dead bracket (truncation: ...)" — observed max exceeded bracket upper_f.
+             Physical constraint; cannot lose.  High-conviction signal.
+           "dead bracket (model: CDF tail below bracket)" — HRRR/ensemble shift pushed
+             the tail below the bracket boundary.  Still a forecast; can be wrong.
+         The §5.3 decomposition query distinguishes these via reason LIKE patterns.
       3. Exit: overrides everything when existing open position and |edge| < EXIT_EDGE_THRESHOLD.
 
     Time gates (PROVISIONAL):
@@ -256,10 +261,27 @@ def generate_signals(
                 reason = f"model {model_prob:.0%} < mkt {market_price:.0%}, edge {edge:+.1%}"
 
         # 2. Dead-bracket (overrides entry; exempt from time gate)
+        # Split reason by cause so §5.3 decomposition can separate win rates:
+        #   truncation  — observed max already exceeded bracket; physically impossible.
+        #   model       — CDF shift/narrowing pushed tail past bracket boundary; still a forecast.
         if model_prob == 0.0 and market_price > DEAD_BRACKET_FLOOR:  # PROVISIONAL
-            obs_s = f"{observed_max_f:.0f}F" if observed_max_f is not None else "unknown"
             signal_type = "SELL_YES"
-            reason = f"dead bracket (observed max {obs_s}), still priced {market_price:.0%}"
+            upper_f = getattr(r, "upper_f", None)
+            is_truncation = (
+                observed_max_f is not None
+                and upper_f is not None
+                and float(upper_f) <= float(observed_max_f) + 0.5  # continuity convention
+            )
+            if is_truncation:
+                reason = (
+                    f"dead bracket (truncation: observed {observed_max_f:.0f}F), "
+                    f"still priced {market_price:.0%}"
+                )
+            else:
+                reason = (
+                    f"dead bracket (model: CDF tail below bracket), "
+                    f"still priced {market_price:.0%}"
+                )
 
         # 3. Exit: overrides both when edge collapsed on an open position
         existing_yes = open_positions.get((label, "YES"))
