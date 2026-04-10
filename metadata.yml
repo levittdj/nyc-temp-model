@@ -239,3 +239,101 @@ databases:
         WHERE a.metar_new_obs = 1
           AND a.snapshot_type = 'intraday'
         ORDER BY a.event_date DESC, a.snapshot_ts DESC, a.bracket_label
+
+      paper_pnl_daily: |-
+        SELECT
+          p.event_date,
+          ROUND(SUM(p.pnl_net), 4) AS daily_pnl,
+          ROUND(SUM(SUM(p.pnl_net)) OVER (ORDER BY p.event_date), 4) AS cumulative_pnl,
+          COUNT(*) AS n_trades,
+          SUM(CASE WHEN p.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
+          SUM(CASE WHEN p.pnl_net <= 0 THEN 1 ELSE 0 END) AS losses
+        FROM paper_positions p
+        WHERE p.status IN ('exited', 'settled')
+        GROUP BY p.event_date
+        ORDER BY p.event_date
+
+      paper_signal_quality: |-
+        SELECT
+          s.signal_type,
+          COUNT(*) AS n_signals,
+          SUM(CASE WHEN p.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
+          SUM(CASE WHEN p.pnl_net <= 0 THEN 1 ELSE 0 END) AS losses,
+          ROUND(AVG(p.pnl_net), 4) AS mean_pnl,
+          ROUND(SUM(p.pnl_net), 4) AS total_pnl,
+          ROUND(AVG(s.edge), 4) AS mean_edge_at_entry
+        FROM intraday_signals s
+        JOIN paper_positions p ON p.entry_signal_id = s.signal_id
+        WHERE p.status IN ('exited', 'settled')
+        GROUP BY s.signal_type
+        ORDER BY s.signal_type
+
+      paper_signal_decomposition: |-
+        SELECT
+          CASE
+            WHEN s.reason LIKE 'dead bracket (truncation%' THEN 'truncation'
+            WHEN s.reason LIKE 'dead bracket (model%'      THEN 'model_dead'
+            WHEN s.hrrr_shift_f IS NOT NULL
+              AND ABS(s.hrrr_shift_f) > 0.5              THEN 'hrrr_driven'
+            WHEN s.trajectory_deviation_f IS NOT NULL
+              AND ABS(s.trajectory_deviation_f) > 1.0    THEN 'trajectory_driven'
+            WHEN s.ensemble_ratio IS NOT NULL
+              AND ABS(s.ensemble_ratio - 1.0) > 0.15     THEN 'ensemble_driven'
+            ELSE 'edge_only'
+          END AS signal_source,
+          COUNT(*) AS n,
+          ROUND(AVG(p.pnl_net), 4) AS mean_pnl,
+          ROUND(SUM(p.pnl_net), 4) AS total_pnl,
+          SUM(CASE WHEN p.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
+          SUM(CASE WHEN p.pnl_net <= 0 THEN 1 ELSE 0 END) AS losses
+        FROM intraday_signals s
+        JOIN paper_positions p ON p.entry_signal_id = s.signal_id
+        WHERE p.status IN ('exited', 'settled')
+        GROUP BY signal_source
+        ORDER BY total_pnl DESC
+
+      paper_open_positions: |-
+        SELECT
+          p.event_date,
+          p.bracket_label,
+          p.side,
+          p.contracts,
+          ROUND(p.avg_entry_price, 4) AS avg_entry_price,
+          p.entry_ts,
+          ROUND(p.entry_fee, 4) AS entry_fee
+        FROM paper_positions p
+        WHERE p.status = 'open'
+        ORDER BY p.event_date, p.bracket_label
+
+      paper_position_history: |-
+        SELECT
+          p.event_date,
+          p.bracket_label,
+          p.side,
+          p.contracts,
+          ROUND(p.avg_entry_price, 4) AS avg_entry_price,
+          ROUND(p.exit_price, 4) AS exit_price,
+          p.status,
+          p.settlement_outcome,
+          ROUND(p.pnl_gross, 4) AS pnl_gross,
+          ROUND(p.pnl_net, 4) AS pnl_net,
+          p.entry_ts,
+          p.exit_ts
+        FROM paper_positions p
+        ORDER BY p.event_date DESC, p.entry_ts DESC
+
+      market_as_probability_brier: |-
+        SELECT
+          snapshot_type,
+          ROUND(AVG((model_prob - outcome) * (model_prob - outcome)), 6) AS model_brier,
+          ROUND(AVG((market_price - outcome) * (market_price - outcome)), 6) AS market_brier,
+          ROUND(
+            AVG((model_prob - outcome) * (model_prob - outcome)) -
+            AVG((market_price - outcome) * (market_price - outcome)),
+            6
+          ) AS model_minus_market,
+          COUNT(*) AS n
+        FROM bracket_snapshots
+        WHERE outcome IS NOT NULL
+        GROUP BY snapshot_type
+        ORDER BY snapshot_type
