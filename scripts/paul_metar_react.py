@@ -1,6 +1,20 @@
 import sqlite3, requests, sys
 from datetime import date, datetime, timezone
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_NY = ZoneInfo('America/New_York')
+
+def _et(ts) -> str:
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(_NY).strftime('%-I:%M%p ET')
+
 DB = '/home/ubuntu/nyc-temp-model/nyc_temp_log.sqlite'
 BOT_TOKEN = '8652874695:AAFie5ef1mj7YXFeCs1yFiDqOEO4A76Ekg4'
 CHAT_ID = -5229782521
@@ -50,7 +64,7 @@ metar_row = conn.execute('''
 metar_ts = metar_row[0] if metar_row else '?'
 metar_tmpf = metar_row[1] if metar_row else None
 
-lines = ['METAR ' + today + '  ' + metar_ts]
+lines = ['METAR ' + today + '  ' + _et(metar_ts)]
 if metar_tmpf is not None:
     lines.append('Current: ' + str(int(metar_tmpf)) + 'F')
 if running_high is not None:

@@ -2,6 +2,20 @@ import sqlite3, requests, sys
 from datetime import datetime, timezone
 from collections import defaultdict
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_NY = ZoneInfo('America/New_York')
+
+def _et(ts) -> str:
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(_NY).strftime('%-I:%M%p ET').lower().replace('am', 'am').replace('pm', 'pm')
+
 DB = '/home/ubuntu/nyc-temp-model/nyc_temp_log.sqlite'
 BOT_TOKEN = '8652874695:AAFie5ef1mj7YXFeCs1yFiDqOEO4A76Ekg4'
 CHAT_ID = -5229782521
@@ -69,7 +83,7 @@ alerts.sort(reverse=True)
 if not alerts and not sweep_alerts:
     sys.exit(0)
 
-lines = ['Sharp price move — ' + ts_new]
+lines = ['Sharp price move — ' + _et(ts_new)]
 
 # Sweep alerts first — higher signal
 for event_date, large_movers, all_date_rows in sweep_alerts:

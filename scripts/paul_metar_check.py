@@ -14,7 +14,22 @@ SCRIPTS = Path(__file__).resolve().parent
 ROOT = SCRIPTS.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(SCRIPTS))
-from metar_freshness_common import run_metar_freshness, z_ts  # noqa: E402
+from datetime import datetime, timezone
+from metar_freshness_common import run_metar_freshness  # noqa: E402
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_NY = ZoneInfo('America/New_York')
+
+def _et(ts) -> str:
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(_NY).strftime('%-I:%M%p ET')
 
 pythonDB = '/home/ubuntu/nyc-temp-model/nyc_temp_log.sqlite'
 BOT_TOKEN = '8652874695:AAFie5ef1mj7YXFeCs1yFiDqOEO4A76Ekg4'
@@ -53,16 +68,16 @@ def main() -> int:
     flag = "STALE" if out["stale"] else "OK"
 
     lines = [
-        "METAR freshness — " + z_ts(now),
+        "METAR freshness — " + _et(now),
         "",
-        "DB:  " + z_ts(out["db_obs"]) + "  " + _tf(out["db_tmpf"]) + "°F",
-        "NOAA: " + z_ts(lat["observation_ts"]) + "  " + _tf(lat.get("tmpf")) + "°F",
+        "DB:  " + _et(out["db_obs"]) + "  " + _tf(out["db_tmpf"]) + "°F",
+        "NOAA: " + _et(lat["observation_ts"]) + "  " + _tf(lat.get("tmpf")) + "°F",
         "Lag: " + str(lag_disp) + " min " + flag,
         "",
         "NOAA last 3 hours:",
     ]
     for row in out["noaa_rows"]:
-        lines.append("  " + z_ts(row["observation_ts"]) + "  " + _tf(row.get("tmpf")) + "°F")
+        lines.append("  " + _et(row["observation_ts"]) + "  " + _tf(row.get("tmpf")) + "°F")
 
     try:
         _send("\n".join(lines))

@@ -34,6 +34,13 @@ def _utc_z(ts: datetime) -> str:
         ts = ts.replace(tzinfo=timezone.utc)
     return ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+def _et(ts) -> str:
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(ny).strftime('%-I:%M%p ET')
+
 
 def main() -> int:
     ny = ZoneInfo("America/New_York")
@@ -123,7 +130,7 @@ def main() -> int:
                 f"7:00–7:30pm lotto check — {event_date.isoformat()}",
                 f"Second-highest bracket traded >5c in window.",
                 f"Peak 2nd-highest: {best_label} at {int(round(best_second*100))}c (top was {int(round(best_top*100))}c)",
-                f"Snapshot: {best_ts}",
+                f"Snapshot: {_et(best_ts)}",
             ]
         )
         requests.post(

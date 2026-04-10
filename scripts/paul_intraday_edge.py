@@ -16,6 +16,10 @@ from datetime import date, datetime, timezone
 
 import requests
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
 
 DB = "/home/ubuntu/nyc-temp-model/nyc_temp_log.sqlite"
 BOT_TOKEN = "8652874695:AAFie5ef1mj7YXFeCs1yFiDqOEO4A76Ekg4"
@@ -24,6 +28,14 @@ CHAT_ID = -5229782521
 DEAD_BRACKET_VALUE_THRESHOLD = 0.10  # PROVISIONAL (10c)
 DEAD_BRACKET_PRICE_MIN = 0.02  # PROVISIONAL (2c)
 
+_NY = ZoneInfo('America/New_York')
+
+def _et(ts) -> str:
+    if isinstance(ts, str):
+        ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(_NY).strftime('%-I:%M%p ET')
 
 def _utc_now_s() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -103,7 +115,7 @@ def main() -> int:
         hrrr_shift_applied = rows[0][5]
         lines = [
             f"Intraday truncation edge — {today}",
-            f"Running high: {observed_max:.1f}°F as of {snap_ts}",
+            f"Running high: {observed_max:.1f}°F as of {_et(snap_ts)}",
             "",
             "Dead brackets still priced:",
         ]
