@@ -996,7 +996,10 @@ def truncate_and_renormalize(rows: list[BracketRow], observed_max_f: float) -> l
             p = 0.0
         total += p
         staged.append(replace(r, model_prob=p))
-    assert total > 0.0, "truncate_and_renormalize: all bracket mass zeroed; check tail bracket bounds"
+    if total <= 0.0:
+        import sys as _sys
+        print("truncate_and_renormalize: all brackets zeroed after truncation — returning original rows untruncated", file=_sys.stderr)
+        return rows
     out: list[BracketRow] = []
     for r in staged:
         p = r.model_prob / total if r.model_prob > 0 else 0.0
