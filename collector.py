@@ -24,6 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, DefaultDict, Optional, Tuple
 
+from intraday_engine import execute_paper_trades, generate_signals
 from logger import (
     DEFAULT_DB_NAME,
     _forecast_lead_hours,
@@ -632,6 +633,29 @@ def main() -> int:
                     f"collector: truncation for {ev.isoformat()}: observed_max={observed_max_f_at_snapshot:.1f}F, "
                     f"{max(0, after - before)} brackets zeroed"
                 )
+
+        # --- Paper signal generation and execution (today's market only; §3) ---
+        if ev == ny_today:
+            try:
+                signals = generate_signals(
+                    ev,
+                    rows,
+                    args.db,
+                    snapshot_ts,
+                    observed_max_f_at_snapshot,
+                    hrrr_shift_f=hrrr_shift_applied_f,
+                    trajectory_deviation_f=trajectory_deviation_f,
+                    ensemble_ratio=ensemble_width_ratio,
+                    forecast_lead_hours=forecast_lead_hours_val,
+                )
+                n_changed = execute_paper_trades(signals, args.db)
+                if signals:
+                    print(
+                        f"collector: signals for {ev.isoformat()}: "
+                        f"{len(signals)} generated, {n_changed} position(s) changed"
+                    )
+            except Exception as _e:
+                print(f"collector: intraday_engine error for {ev.isoformat()}: {_e}")
 
         log_morning_run(
             args.db,

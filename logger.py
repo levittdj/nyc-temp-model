@@ -88,6 +88,64 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     PRIMARY KEY (event_date, snapshot_ts, snapshot_type, bracket_label)
 );
 
+CREATE TABLE IF NOT EXISTS intraday_signals (
+    signal_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_date TEXT NOT NULL,
+    snapshot_ts TEXT NOT NULL,
+    bracket_label TEXT NOT NULL,
+
+    signal_type TEXT NOT NULL,
+    reason TEXT,
+
+    model_prob REAL,
+    market_price REAL,
+    market_bid REAL,
+    market_ask REAL,
+    edge REAL,
+
+    observed_max_f REAL,
+    hrrr_shift_f REAL,
+    trajectory_deviation_f REAL,
+    ensemble_ratio REAL,
+    forecast_lead_hours REAL,
+
+    kelly_full REAL,
+    kelly_fraction REAL,
+    contracts_suggested INTEGER,
+    price_target REAL,
+
+    executed INTEGER DEFAULT 0,
+    execution_ts TEXT,
+    execution_price REAL,
+
+    UNIQUE(event_date, snapshot_ts, bracket_label, signal_type)
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+    position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_date TEXT NOT NULL,
+    bracket_label TEXT NOT NULL,
+    side TEXT NOT NULL,
+
+    contracts INTEGER NOT NULL,
+    avg_entry_price REAL NOT NULL,
+    entry_ts TEXT NOT NULL,
+    entry_signal_id INTEGER REFERENCES intraday_signals(signal_id),
+    entry_fee REAL,
+
+    status TEXT NOT NULL DEFAULT 'open',
+    exit_price REAL,
+    exit_ts TEXT,
+    exit_signal_id INTEGER REFERENCES intraday_signals(signal_id),
+    exit_fee REAL,
+
+    settlement_outcome INTEGER,
+    pnl_gross REAL,
+    pnl_net REAL,
+
+    UNIQUE(event_date, bracket_label, side, entry_ts)
+);
+
 CREATE TABLE IF NOT EXISTS dsm_observations (
     fetch_ts TEXT NOT NULL,
     issuance_ts TEXT,
@@ -840,6 +898,22 @@ def backfill_outcome(
             )
             updated += int(cur2.rowcount or 0)
         conn.commit()
+
+        # Settle open paper positions — guard so settlement failures never break backfill
+        try:
+            from intraday_engine import settle_paper_positions  # local import avoids circularity
+            n_settled = settle_paper_positions(db_path, event_date, float(actual_max_f))
+            if n_settled > 0:
+                print(
+                    f"backfill: settled {n_settled} paper position(s) for {event_date.isoformat()}",
+                    file=sys.stderr,
+                )
+        except Exception as _e:
+            print(
+                f"WARNING: settle_paper_positions failed for {event_date.isoformat()}: {_e}",
+                file=sys.stderr,
+            )
+
         return updated
     finally:
         conn.close()
