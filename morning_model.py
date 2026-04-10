@@ -1195,6 +1195,8 @@ def hrrr_blend_weight_for_lead(forecast_lead_hours: float) -> float:
         3–6 h : 0.5  — equal blend
         < 3 h : 0.7  — HRRR leads
     """
+    if forecast_lead_hours <= 0.0:   # past assumed peak — truncation handles it
+        return 0.0
     if forecast_lead_hours > 12.0:   # PROVISIONAL
         return 0.0
     if forecast_lead_hours > 6.0:    # PROVISIONAL

@@ -566,10 +566,12 @@ def main() -> int:
                 hrrr_shift_applied_f = 0.0  # HRRR present but no shift (below threshold or lead>12h)
 
         # --- Signal D: METAR trajectory deviation (today's market only; §2.4) ---
+        # Skip when past assumed peak (lead ≤ 0) — truncation handles it from there.
         trajectory_deviation_f: Optional[float] = None
         trajectory_confidence: Optional[float] = None
         trajectory_shift_component: Optional[float] = None
-        if ev == ny_today:
+        _traj_lead = _forecast_lead_hours(snapshot_ts, ev) if forecast_lead_hours_val is None else forecast_lead_hours_val
+        if ev == ny_today and _traj_lead > 0.0:
             if olow is not None:
                 try:
                     sunrise_utc, _ = fetch_sunrise_sunset(KNYC_LAT, KNYC_LON, ev)
