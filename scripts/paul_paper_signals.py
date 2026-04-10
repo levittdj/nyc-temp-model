@@ -44,6 +44,13 @@ def main() -> int:
     try:
         today = date.today().isoformat()
 
+        # Exit silently if paper tables don't exist yet
+        tables = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        if 'intraday_signals' not in tables or 'paper_positions' not in tables:
+            return 0
+
         # Find the latest snapshot_ts with at least one executed signal today
         row = conn.execute(
             """
@@ -116,6 +123,19 @@ def main() -> int:
 
         lines.append("")
         lines.append(f"Open positions: {open_count}")
+
+        # Cumulative P&L from all closed/settled positions
+        pnl_row = conn.execute(
+            """
+            SELECT ROUND(SUM(pnl_net), 2), COUNT(*)
+            FROM paper_positions
+            WHERE status IN ('exited', 'settled')
+            """
+        ).fetchone()
+        cum_pnl = pnl_row[0] if pnl_row and pnl_row[0] is not None else 0.0
+        n_closed = pnl_row[1] if pnl_row else 0
+        pnl_s = ('+' if cum_pnl >= 0 else '') + str(cum_pnl)
+        lines.append(f"Cumulative P&L: {pnl_s}c  ({n_closed} closed)")
 
         # Mark sent before posting
         conn.execute(
