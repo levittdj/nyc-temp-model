@@ -133,6 +133,11 @@ _BRACKET_SNAPSHOT_ALTER: Tuple[Tuple[str, str], ...] = (
     ("hrrr_max_f", "REAL"),
     ("hrrr_shift_applied_f", "REAL"),
     ("metar_new_obs", "INTEGER"),
+    ("trajectory_deviation_f", "REAL"),
+    ("trajectory_confidence", "REAL"),
+    ("ensemble_width_ratio", "REAL"),
+    ("combined_shift_f", "REAL"),
+    ("hrrr_blend_weight", "REAL"),
 )
 
 
@@ -586,6 +591,11 @@ def log_morning_run(
     hrrr_max_f: Optional[float] = None,
     hrrr_shift_applied_f: Optional[float] = None,
     metar_new_obs: bool = False,
+    trajectory_deviation_f: Optional[float] = None,
+    trajectory_confidence: Optional[float] = None,
+    ensemble_width_ratio: Optional[float] = None,
+    combined_shift_f: Optional[float] = None,
+    hrrr_blend_weight: Optional[float] = None,
 ) -> None:
     """Insert one snapshot (one row per bracket) for a single event_date."""
     p10, p50, p90 = pct_f_raw
@@ -671,8 +681,10 @@ def log_morning_run(
                     ens_gefs_spread_f, ens_gefs_sd_f, ens_ecmwf_spread_f, ens_ecmwf_sd_f,
                     ens_gefs_p50_f, ens_ecmwf_p50_f,
                     observed_max_f_at_snapshot, hrrr_max_f, hrrr_shift_applied_f,
-                    metar_new_obs
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    metar_new_obs,
+                    trajectory_deviation_f, trajectory_confidence, ensemble_width_ratio,
+                    combined_shift_f, hrrr_blend_weight
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     event_date.isoformat(),
@@ -721,6 +733,11 @@ def log_morning_run(
                     hrrr_max_f,
                     hrrr_shift_applied_f,
                     1 if metar_new_obs else 0,
+                    trajectory_deviation_f,
+                    trajectory_confidence,
+                    ensemble_width_ratio,
+                    combined_shift_f,
+                    hrrr_blend_weight,
                 ),
             )
         conn.commit()

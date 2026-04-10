@@ -26,6 +26,7 @@ from typing import Any, DefaultDict, Optional, Tuple
 
 from logger import (
     DEFAULT_DB_NAME,
+    _forecast_lead_hours,
     latest_metar_observation_ts_utc,
     latest_metar_wind_speed_kt,
     latest_morning_overnight_and_record_high,
@@ -40,15 +41,21 @@ from morning_model import (
     KNYC_LAT,
     KNYC_LON,
     BracketRow,
+    ZoneModel,
+    apply_ensemble_width,
+    apply_trajectory_shift,
     bracket_prob,
     build_zones,
+    combine_shifts,
+    compute_trajectory_deviation,
     fetch_ensemble_spread,
     fetch_hrrr_forecast,
     fetch_live_nbm_fahrenheit,
+    fetch_sunrise_sunset,
+    hrrr_blend_weight_for_lead,
     kalshi_integration_bounds,
     kalshi_mid_price,
     load_config,
-    apply_hrrr_shift,
     truncate_and_renormalize,
 )
 
@@ -348,9 +355,14 @@ def _rows_for_event(
     pct_f_raw: tuple[float, float, float],
     markets: list[dict[str, Any]],
     nbp_meta: Optional[dict[str, Any]] = None,
-) -> tuple[list[BracketRow], Any, float]:
+    adjusted_zone: Optional[ZoneModel] = None,
+) -> tuple[list[BracketRow], ZoneModel, float]:
     """
     Compute model_prob for each bracket market for this event_date using shared zone math.
+
+    If adjusted_zone is provided it is used for bracket probability computation instead of
+    building the zone from pct_f_raw + nbm_bias.  The z_triplet comparison CDF is always
+    built from the raw biased NBM percentiles so it remains an unmodified baseline.
     """
     meta = nbp_meta or {}
     p25r = meta.get("nbm_p25_raw")
@@ -366,7 +378,8 @@ def _rows_for_event(
     p10b, p50b, p90b = pct_f_raw[0] + nbm_bias, pct_f_raw[1] + nbm_bias, pct_f_raw[2] + nbm_bias
     p25b = p25f + nbm_bias if p25f is not None else None
     p75b = p75f + nbm_bias if p75f is not None else None
-    z = build_zones(p10b, p50b, p90b, p25b, p75b)
+    z = adjusted_zone if adjusted_zone is not None else build_zones(p10b, p50b, p90b, p25b, p75b)
+    # z_triplet is always built from raw biased percentiles — ensemble width does not touch it.
     z_triplet = build_zones(p10b, p50b, p90b) if (p25b is not None and p75b is not None) else None
     rows: list[BracketRow] = []
     for m in markets:
@@ -496,8 +509,7 @@ def main() -> int:
     ny_today = snapshot_ts.astimezone(ny_tz).date()
     for ev in sorted(by_event.keys()):
         pct_f_raw, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, ev)
-        rows, z, nbm_p50_adj = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta)
-        # Intraday wind_speed_kt is METAR-derived (latest obs ≤ snapshot); morning_model uses NWS grid — different sources.
+        # Intraday wind_speed_kt is METAR-derived (latest obs <= snapshot); morning_model uses NWS grid.
         wkt = latest_metar_wind_speed_kt(args.db, snapshot_ts, station="KNYC")
         olow, rhf = latest_morning_overnight_and_record_high(args.db, ev)
         ens: dict[str, Any] = {}
@@ -506,31 +518,106 @@ def main() -> int:
         except Exception:
             pass
 
-        # HRRR shift: only for today/tomorrow (Open-Meteo forecast_days=2)
-        hrrr = None
+        # --- Signal C: Ensemble width modulation (before bracket prob computation; §2.5 step 2) ---
+        # Build initial zone from NBM percentiles, then potentially widen/narrow L and U based
+        # on ensemble SD vs NBM-implied SD.  Inner knots (p10/p25/p50/p75/p90) stay fixed.
+        ensemble_width_ratio: Optional[float] = None
+        nbm_spread_raw_val = pct_f_raw[2] - pct_f_raw[0]
+        rows_base, z_nbm, nbm_p50_adj = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta)
+        z_adj, ensemble_width_ratio = apply_ensemble_width(
+            z_nbm, ens.get("ens_gefs_sd_f"), ens.get("ens_ecmwf_sd_f"), nbm_spread_raw_val
+        )
+        if z_adj is not z_nbm:
+            # Recompute bracket probs from ensemble-adjusted zone (tails may differ from z_nbm)
+            rows, z = _rows_for_event(
+                ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta, adjusted_zone=z_adj
+            )[:2]
+            print(
+                f"collector: ensemble width for {ev.isoformat()}: ratio={ensemble_width_ratio:.3f} "
+                f"L {z_nbm.L:.1f}->{z_adj.L:.1f}  U {z_nbm.U:.1f}->{z_adj.U:.1f}"
+            )
+        else:
+            rows, z = rows_base, z_nbm
+
+        # --- Signal B: HRRR shift with lead-time-dependent blend weight (§2.2) ---
         hrrr_max_f: Optional[float] = None
-        hrrr_shift_applied_f: Optional[float] = None
+        hrrr_shift_applied_f: Optional[float] = None   # HRRR component alone (for logging/decomposition)
+        hrrr_blend_weight_val: Optional[float] = None
+        hrrr_shift_component: Optional[float] = None   # HRRR contribution before combining
+        forecast_lead_hours_val: Optional[float] = None
+        shift_raw_hrrr: Optional[float] = None
         if ev in (ny_today, ny_today + timedelta(days=1)):
             hrrr = fetch_hrrr_forecast(KNYC_LAT, KNYC_LON, ev, as_of_utc=snapshot_ts)
-        if hrrr and hrrr.get("hrrr_max_f") is not None:
-            try:
-                hrrr_max_f = float(hrrr["hrrr_max_f"])
-            except (TypeError, ValueError):
-                hrrr_max_f = None
+            if hrrr and hrrr.get("hrrr_max_f") is not None:
+                try:
+                    hrrr_max_f = float(hrrr["hrrr_max_f"])
+                except (TypeError, ValueError):
+                    pass
         if hrrr_max_f is not None:
-            shift_f = hrrr_max_f - float(nbm_p50_adj)
-            # PROVISIONAL: abs(shift)<1F -> no change, but log 0.0; otherwise apply half-weight shift
-            if abs(shift_f) < 1.0:
-                hrrr_shift_applied_f = 0.0
+            forecast_lead_hours_val = _forecast_lead_hours(snapshot_ts, ev)
+            blend_weight = hrrr_blend_weight_for_lead(forecast_lead_hours_val)
+            hrrr_blend_weight_val = blend_weight
+            shift_raw_hrrr = hrrr_max_f - float(nbm_p50_adj)
+            if blend_weight > 0.0 and abs(shift_raw_hrrr) >= 1.0:  # PROVISIONAL threshold
+                hrrr_shift_component = shift_raw_hrrr * blend_weight
+                hrrr_shift_applied_f = hrrr_shift_component
             else:
-                hrrr_shift_applied_f = shift_f * 0.5
-                rows = apply_hrrr_shift(z, hrrr_max_f, nbm_p50_adj, rows)
+                hrrr_shift_applied_f = 0.0  # HRRR present but no shift (below threshold or lead>12h)
+
+        # --- Signal D: METAR trajectory deviation (today's market only; §2.4) ---
+        trajectory_deviation_f: Optional[float] = None
+        trajectory_confidence: Optional[float] = None
+        trajectory_shift_component: Optional[float] = None
+        if ev == ny_today:
+            if olow is not None:
+                try:
+                    sunrise_utc, _ = fetch_sunrise_sunset(KNYC_LAT, KNYC_LON, ev)
+                    dev, conf = compute_trajectory_deviation(
+                        args.db, ev, float(nbm_p50_adj), float(olow), sunrise_utc, snapshot_ts
+                    )
+                    trajectory_deviation_f = dev
+                    trajectory_confidence = conf
+                except Exception:
+                    pass
+                if trajectory_deviation_f is not None and trajectory_confidence is not None:
+                    trajectory_shift_component = trajectory_deviation_f * trajectory_confidence
+            else:
                 print(
-                    f"collector: HRRR shift for {ev.isoformat()}: hrrr_max={hrrr_max_f:.1f}F vs nbm_p50={nbm_p50_adj:.1f}F, "
-                    f"shift={shift_f:+.1f}F applied={hrrr_shift_applied_f:+.1f}F"
+                    f"collector: trajectory deviation skipped for {ev.isoformat()}: "
+                    "overnight_low_f unavailable (no morning snapshot yet)"
                 )
 
-        # Observed-max truncation: only for today's market
+        # --- Combine and apply shifts B + D in one pass (§2.5 steps 4-5) ---
+        # Using apply_trajectory_shift(z, shift, 1.0, rows) as a generic "apply shift_f to zone"
+        # helper — confidence=1.0 means the full shift_f is applied as-is.
+        combined_shift_f: Optional[float] = None
+        if hrrr_shift_component is not None and trajectory_shift_component is not None:
+            combined_shift_f = combine_shifts(hrrr_shift_component, trajectory_shift_component)
+            rows = apply_trajectory_shift(z, combined_shift_f, 1.0, rows)
+            print(
+                f"collector: combined shift for {ev.isoformat()}: "
+                f"hrrr={hrrr_shift_component:+.2f}F traj={trajectory_shift_component:+.2f}F "
+                f"combined={combined_shift_f:+.2f}F (lead={forecast_lead_hours_val:.1f}h)"
+            )
+        elif hrrr_shift_component is not None:
+            combined_shift_f = hrrr_shift_component
+            rows = apply_trajectory_shift(z, hrrr_shift_component, 1.0, rows)
+            print(
+                f"collector: HRRR shift for {ev.isoformat()}: hrrr_max={hrrr_max_f:.1f}F "
+                f"nbm_p50={nbm_p50_adj:.1f}F raw={shift_raw_hrrr:+.1f}F "
+                f"applied={hrrr_shift_component:+.2f}F "
+                f"(lead={forecast_lead_hours_val:.1f}h blend={hrrr_blend_weight_val:.1f})"
+            )
+        elif trajectory_shift_component is not None:
+            combined_shift_f = trajectory_shift_component
+            rows = apply_trajectory_shift(z, trajectory_deviation_f, trajectory_confidence, rows)
+            print(
+                f"collector: trajectory shift for {ev.isoformat()}: "
+                f"deviation={trajectory_deviation_f:+.2f}F conf={trajectory_confidence:.2f} "
+                f"shift={trajectory_shift_component:+.2f}F"
+            )
+
+        # --- Signal A: Observed-max truncation — always last (§2.5 step 6) ---
         observed_max_f_at_snapshot: Optional[float] = None
         if ev == ny_today:
             try:
@@ -567,6 +654,11 @@ def main() -> int:
             hrrr_max_f=hrrr_max_f,
             hrrr_shift_applied_f=hrrr_shift_applied_f,
             metar_new_obs=metar_new_obs,
+            trajectory_deviation_f=trajectory_deviation_f,
+            trajectory_confidence=trajectory_confidence,
+            ensemble_width_ratio=ensemble_width_ratio,
+            combined_shift_f=combined_shift_f,
+            hrrr_blend_weight=hrrr_blend_weight_val,
         )
 
     print(f"collector: wrote intraday snapshots at {snapshot_ts.isoformat()} for {len(by_event)} event_date(s)")
