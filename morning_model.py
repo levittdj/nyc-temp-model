@@ -917,10 +917,10 @@ def fetch_hrrr_forecast(
             as_of_utc = as_of_utc.replace(tzinfo=timezone.utc)
         z = _zone()
         url = (
-            "https://api.open-meteo.com/v1/gfs"
+            "https://api.open-meteo.com/v1/forecast"
             f"?latitude={lat}&longitude={lon}"
             "&hourly=temperature_2m"
-            "&models=hrrr_conus"
+            "&models=gfs_hrrr"
             "&timezone=America%2FNew_York"
             "&forecast_days=2"
         )
