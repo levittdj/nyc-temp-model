@@ -927,7 +927,15 @@ def fetch_hrrr_forecast(
             "&timezone=America%2FNew_York"
             "&forecast_days=2"
         )
-        j = _http_json(url)
+        try:
+            j = _http_json(url)
+        except Exception as e:
+            if "503" in str(e) or "Service Unavailable" in str(e):
+                import time
+                time.sleep(3)
+                j = _http_json(url)
+            else:
+                raise
         hourly = j.get("hourly") or {}
         times = hourly.get("time") or []
         temps = hourly.get("temperature_2m") or []
