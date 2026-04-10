@@ -18,9 +18,12 @@ import csv
 import io
 import json
 import math
+import os
 import re
+import sqlite3
 import statistics
 import sys
+import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -1041,6 +1044,327 @@ def apply_hrrr_shift(
     return out
 
 
+def fetch_sunrise_sunset(
+    lat: float,
+    lon: float,
+    event_date: date,
+) -> tuple[datetime, datetime]:
+    """
+    Return (sunrise_utc, sunset_utc) for event_date at (lat, lon).
+
+    Hits Open-Meteo forecast endpoint with daily=sunrise,sunset.
+    Fallback to 06:15 and 19:45 local (America/New_York) if the API fails.
+    Fallback times are PROVISIONAL estimates for NYC spring; actual sunrise
+    ranges ~05:30–07:00 ET across the year.
+    """
+    _FALLBACK_SUNRISE_H, _FALLBACK_SUNRISE_M = 6, 15   # PROVISIONAL
+    _FALLBACK_SUNSET_H, _FALLBACK_SUNSET_M = 19, 45    # PROVISIONAL
+    z = _zone()
+    try:
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&daily=sunrise,sunset"
+            "&timezone=America%2FNew_York"
+            f"&start_date={event_date.isoformat()}"
+            f"&end_date={event_date.isoformat()}"
+        )
+        j = _http_json(url)
+        daily = j.get("daily") or {}
+        times = [str(t) for t in (daily.get("time") or [])]
+        sunrises = daily.get("sunrise") or []
+        sunsets = daily.get("sunset") or []
+        if event_date.isoformat() in times:
+            idx = times.index(event_date.isoformat())
+            if idx < len(sunrises) and idx < len(sunsets) and sunrises[idx] and sunsets[idx]:
+                sr_raw = str(sunrises[idx])
+                ss_raw = str(sunsets[idx])
+                sr_local = datetime.fromisoformat(sr_raw)
+                ss_local = datetime.fromisoformat(ss_raw)
+                if sr_local.tzinfo is None:
+                    sr_local = sr_local.replace(tzinfo=z)
+                else:
+                    sr_local = sr_local.astimezone(z)
+                if ss_local.tzinfo is None:
+                    ss_local = ss_local.replace(tzinfo=z)
+                else:
+                    ss_local = ss_local.astimezone(z)
+                return sr_local.astimezone(timezone.utc), ss_local.astimezone(timezone.utc)
+    except Exception:
+        pass
+    sr_fb = datetime(
+        event_date.year, event_date.month, event_date.day,
+        _FALLBACK_SUNRISE_H, _FALLBACK_SUNRISE_M, tzinfo=z,
+    ).astimezone(timezone.utc)
+    ss_fb = datetime(
+        event_date.year, event_date.month, event_date.day,
+        _FALLBACK_SUNSET_H, _FALLBACK_SUNSET_M, tzinfo=z,
+    ).astimezone(timezone.utc)
+    return sr_fb, ss_fb
+
+
+def apply_ensemble_width(
+    z: ZoneModel,
+    ens_gefs_sd_f: Optional[float],
+    ens_ecmwf_sd_f: Optional[float],
+    nbm_spread_raw: float,
+) -> tuple[ZoneModel, Optional[float]]:
+    """
+    Scale tail extent (L and U only) based on ensemble SD vs NBM-implied SD.
+
+    combined_ens_sd = member-count-weighted mean of available ensemble SDs
+        (GEFS 31 members, ECMWF 51 members — PROVISIONAL counts).
+    nbm_implied_sd = nbm_spread_raw / 2.56  (p10–p90 ≈ 2.56σ for Gaussian).
+    ratio = combined_ens_sd / nbm_implied_sd.
+
+    ratio > 1.15 → widen tails (L moves left, U moves right).
+    ratio < 0.85 → narrow tails (L moves right, U moves left).
+    Otherwise   → no change.
+
+    Inner knots (p10, p25, p50, p75, p90) are never touched — ensemble spread
+    affects tail uncertainty, not the central forecast.  Both thresholds PROVISIONAL.
+
+    Returns (adjusted_zone, ratio). ratio is None when inputs are insufficient.
+    """
+    _WIDEN_THRESHOLD = 1.15   # PROVISIONAL
+    _NARROW_THRESHOLD = 0.85  # PROVISIONAL
+    _GEFS_MEMBERS = 31        # PROVISIONAL member count
+    _ECMWF_MEMBERS = 51       # PROVISIONAL member count
+
+    if ens_gefs_sd_f is None and ens_ecmwf_sd_f is None:
+        return z, None
+    if nbm_spread_raw is None or float(nbm_spread_raw) <= 0:
+        return z, None
+
+    w_sum = 0.0
+    w_tot = 0.0
+    if ens_gefs_sd_f is not None and ens_gefs_sd_f > 0:
+        w_sum += ens_gefs_sd_f * _GEFS_MEMBERS
+        w_tot += _GEFS_MEMBERS
+    if ens_ecmwf_sd_f is not None and ens_ecmwf_sd_f > 0:
+        w_sum += ens_ecmwf_sd_f * _ECMWF_MEMBERS
+        w_tot += _ECMWF_MEMBERS
+    if w_tot == 0.0:
+        return z, None
+
+    combined_ens_sd = w_sum / w_tot
+    nbm_implied_sd = float(nbm_spread_raw) / 2.56  # p10-p90 ≈ 2.56σ for Gaussian
+    if nbm_implied_sd <= 0:
+        return z, None
+
+    ratio = combined_ens_sd / nbm_implied_sd
+
+    if ratio > _WIDEN_THRESHOLD or ratio < _NARROW_THRESHOLD:
+        new_L = z.p10 - (z.p10 - z.L) * ratio
+        new_U = z.p90 + (z.U - z.p90) * ratio
+        adjusted = ZoneModel(
+            L=new_L,
+            p10=z.p10,
+            p25=z.p25,
+            p50=z.p50,
+            p75=z.p75,
+            p90=z.p90,
+            U=new_U,
+        )
+        return adjusted, ratio
+
+    return z, ratio
+
+
+def hrrr_blend_weight_for_lead(forecast_lead_hours: float) -> float:
+    """
+    Lead-time-dependent HRRR blend weight for use with apply_hrrr_shift().
+
+    HRRR's advantage over NBM comes from hourly data assimilation; that edge
+    fades as lead time lengthens and NBM's multi-model blend takes over.
+
+    Schedule (all values PROVISIONAL — calibrate against observed |error| data):
+      > 12 h : 0.0  — NBM dominates; do not shift
+       6–12 h : 0.3  — mild HRRR influence
+        3–6 h : 0.5  — equal blend
+        < 3 h : 0.7  — HRRR leads
+    """
+    if forecast_lead_hours > 12.0:   # PROVISIONAL
+        return 0.0
+    if forecast_lead_hours > 6.0:    # PROVISIONAL
+        return 0.3                   # PROVISIONAL
+    if forecast_lead_hours > 3.0:    # PROVISIONAL
+        return 0.5                   # PROVISIONAL
+    return 0.7                       # PROVISIONAL
+
+
+def compute_trajectory_deviation(
+    db_path: Path,
+    event_date: date,
+    forecast_high_f: float,
+    overnight_low_f: float,
+    sunrise_utc: datetime,
+    as_of_utc: datetime,
+) -> tuple[Optional[float], Optional[float]]:
+    """
+    Compare observed METAR temperatures against the expected sinusoidal warming curve.
+
+    Expected diurnal model:
+        T_expected(t) = overnight_low + (forecast_high - overnight_low) × sin(π/2 × elapsed/peak_span)
+    where elapsed = seconds since sunrise, peak_span = seconds from sunrise to 14:00 local.
+    Peak hour 14:00 local is PROVISIONAL — KNYC peak is typically 14:00–15:00 ET.
+
+    Queries metar_observations for KNYC observations in [sunrise_utc, as_of_utc].
+    Requires ≥ 3 valid observations (PROVISIONAL minimum); returns (None, None) otherwise.
+
+    Confidence factor scales with as_of_utc local hour (all thresholds PROVISIONAL):
+        < 10:00  → 0.3  (morning noisy, sea breeze not formed)
+        10–12:00 → 0.5  (pattern establishing)
+        12–14:00 → 0.7  (peak approaching)
+        ≥ 14:00  → 0.9  (high nearly determined)
+
+    Returns (deviation_f, confidence_factor) or (None, None).
+    """
+    _PEAK_HOUR_LOCAL = 14   # PROVISIONAL — diurnal max near 2pm local
+    _MIN_OBS = 3            # PROVISIONAL — minimum observations required
+
+    if as_of_utc.tzinfo is None:
+        as_of_utc = as_of_utc.replace(tzinfo=timezone.utc)
+    if sunrise_utc.tzinfo is None:
+        sunrise_utc = sunrise_utc.replace(tzinfo=timezone.utc)
+
+    z = _zone()
+    sunrise_local = sunrise_utc.astimezone(z)
+    peak_local = sunrise_local.replace(hour=_PEAK_HOUR_LOCAL, minute=0, second=0, microsecond=0)
+    if peak_local <= sunrise_local:
+        peak_local = peak_local + timedelta(days=1)
+    peak_utc = peak_local.astimezone(timezone.utc)
+    peak_span_secs = (peak_utc - sunrise_utc).total_seconds()
+    if peak_span_secs <= 0:
+        return None, None
+
+    as_of_s = as_of_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    sunrise_s = sunrise_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            obs_rows = conn.execute(
+                """
+                SELECT observation_ts, tmpf FROM metar_observations
+                WHERE station = 'KNYC'
+                  AND tmpf IS NOT NULL
+                  AND observation_ts >= ?
+                  AND observation_ts <= ?
+                ORDER BY observation_ts
+                """,
+                (sunrise_s, as_of_s),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return None, None
+
+    if len(obs_rows) < _MIN_OBS:
+        return None, None
+
+    deviations: list[float] = []
+    for obs_ts_s, tmpf in obs_rows:
+        try:
+            obs_dt = datetime.fromisoformat(str(obs_ts_s).replace("Z", "+00:00"))
+            if obs_dt.tzinfo is None:
+                obs_dt = obs_dt.replace(tzinfo=timezone.utc)
+            else:
+                obs_dt = obs_dt.astimezone(timezone.utc)
+            elapsed = (obs_dt - sunrise_utc).total_seconds()
+            if elapsed < 0:
+                continue
+            t = min(elapsed / peak_span_secs, 1.0)
+            sin_factor = math.sin(math.pi / 2.0 * t)
+            t_expected = overnight_low_f + (forecast_high_f - overnight_low_f) * sin_factor
+            deviations.append(float(tmpf) - t_expected)
+        except Exception:
+            continue
+
+    if len(deviations) < _MIN_OBS:
+        return None, None
+
+    deviation_f = sum(deviations) / len(deviations)
+
+    as_of_local = as_of_utc.astimezone(z)
+    hour_local = as_of_local.hour + as_of_local.minute / 60.0
+    if hour_local < 10.0:    # PROVISIONAL
+        confidence_factor = 0.3  # PROVISIONAL — morning data noisy
+    elif hour_local < 12.0:  # PROVISIONAL
+        confidence_factor = 0.5  # PROVISIONAL — pattern establishing
+    elif hour_local < 14.0:  # PROVISIONAL
+        confidence_factor = 0.7  # PROVISIONAL — peak approaching
+    else:
+        confidence_factor = 0.9  # PROVISIONAL — high nearly determined
+
+    return deviation_f, confidence_factor
+
+
+def combine_shifts(
+    hrrr_shift_f: Optional[float],
+    trajectory_shift_f: Optional[float],
+) -> Optional[float]:
+    """
+    Combine HRRR and trajectory deviation shifts into a single CDF shift.
+
+    Agreement (same sign) → amplify: max(|a|, |b|) × 1.2, preserving sign.
+    Disagreement (opposite sign) → mute: arithmetic average.
+    One signal absent (None) → use the other unchanged.
+    Both absent → None.
+
+    Boost factor 1.2 is PROVISIONAL.
+    """
+    _BOOST = 1.2  # PROVISIONAL — same-sign agreement amplifies the shift
+
+    if hrrr_shift_f is None and trajectory_shift_f is None:
+        return None
+    if hrrr_shift_f is None:
+        return trajectory_shift_f
+    if trajectory_shift_f is None:
+        return hrrr_shift_f
+
+    if (hrrr_shift_f >= 0.0) == (trajectory_shift_f >= 0.0):
+        sign = 1.0 if hrrr_shift_f >= 0.0 else -1.0
+        return sign * max(abs(hrrr_shift_f), abs(trajectory_shift_f)) * _BOOST
+    else:
+        return (hrrr_shift_f + trajectory_shift_f) / 2.0
+
+
+def apply_trajectory_shift(
+    z: ZoneModel,
+    trajectory_deviation_f: Optional[float],
+    confidence_factor: Optional[float],
+    rows: list[BracketRow],
+) -> list[BracketRow]:
+    """
+    Soft shift of the CDF based on METAR trajectory deviation.
+
+    shift_f = trajectory_deviation_f × confidence_factor.
+    If either input is None, rows are returned unchanged.
+    Uses _shift_zone() — same pattern as apply_hrrr_shift().
+    """
+    if trajectory_deviation_f is None or confidence_factor is None:
+        return rows
+    shift_f = float(trajectory_deviation_f) * float(confidence_factor)
+    if shift_f == 0.0:
+        return rows
+    z2 = _shift_zone(z, shift_f)
+    out: list[BracketRow] = []
+    for r in rows:
+        mp = bracket_prob(z2, r.lower_f, r.upper_f)
+        out.append(replace(r, model_prob=mp, edge=mp - r.market_price))
+    has_low_tail = any(math.isinf(r.lower_f) and r.lower_f < 0 for r in out)
+    has_high_tail = any(math.isinf(r.upper_f) and r.upper_f > 0 for r in out)
+    if has_low_tail and has_high_tail:
+        total = sum(r.model_prob for r in out)
+        if total > 0:
+            out = [
+                replace(r, model_prob=(r.model_prob / total), edge=(r.model_prob / total) - r.market_price)
+                for r in out
+            ]
+    return out
+
+
 def fetch_live_nbm_fahrenheit(lat: float, lon: float, target: date) -> tuple[tuple[float, float, float], dict[str, Any]]:
     """NBP text TXNP1/5/9 in °F plus metadata."""
     grid_url = nws_grid_url_for_point(lat, lon)
@@ -1090,6 +1414,161 @@ def synthetic_self_test() -> None:
     assert kalshi_settlement_wins(">79", 80.0)
     assert kalshi_settlement_wins("<62", 61.0)
     assert not kalshi_settlement_wins("<62", 62.0)
+
+    # --- hrrr_blend_weight_for_lead ---
+    assert hrrr_blend_weight_for_lead(20.0) == 0.0   # > 12 → no shift
+    assert hrrr_blend_weight_for_lead(12.1) == 0.0   # just above 12
+    assert hrrr_blend_weight_for_lead(12.0) == 0.3   # 12 is not > 12, falls to 6–12 band
+    assert hrrr_blend_weight_for_lead(9.0) == 0.3    # 6–12 h band
+    assert hrrr_blend_weight_for_lead(6.0) == 0.5    # 6 is not > 6, falls to 3–6 band
+    assert hrrr_blend_weight_for_lead(4.5) == 0.5    # 3–6 h band
+    assert hrrr_blend_weight_for_lead(3.0) == 0.7    # 3 is not > 3, falls to < 3 band
+    assert hrrr_blend_weight_for_lead(1.0) == 0.7    # < 3 h band
+
+    # --- apply_ensemble_width ---
+    _z_ew = build_zones(50.0, 60.0, 70.0)
+    # p10=50, p90=70 → nbm_spread=20 → nbm_implied_sd ≈ 7.81
+    _nbm_sp = 20.0
+    # neutral: both SDs ≈ implied_sd → ratio ≈ 1.0, no tail change
+    _z_neut, _r_neut = apply_ensemble_width(_z_ew, 7.81, 7.81, _nbm_sp)
+    assert _r_neut is not None and 0.85 <= _r_neut <= 1.15, _r_neut
+    assert _z_neut.L == _z_ew.L and _z_neut.U == _z_ew.U  # unchanged
+    assert _z_neut.p50 == _z_ew.p50
+    # wide: both SDs >> implied → ratio > 1.15 → tails widen
+    _z_wide, _r_wide = apply_ensemble_width(_z_ew, 12.0, 12.0, _nbm_sp)
+    assert _r_wide is not None and _r_wide > 1.15, _r_wide
+    assert _z_wide.L < _z_ew.L and _z_wide.U > _z_ew.U  # tails widened
+    assert _z_wide.p10 == _z_ew.p10 and _z_wide.p50 == _z_ew.p50 and _z_wide.p90 == _z_ew.p90
+    # narrow: both SDs << implied → ratio < 0.85 → tails narrow
+    _z_narr, _r_narr = apply_ensemble_width(_z_ew, 3.0, 3.0, _nbm_sp)
+    assert _r_narr is not None and _r_narr < 0.85, _r_narr
+    assert _z_narr.L > _z_ew.L and _z_narr.U < _z_ew.U  # tails narrowed
+    assert _z_narr.p50 == _z_ew.p50
+    # both None → unchanged, ratio None
+    _z_n2, _r_n2 = apply_ensemble_width(_z_ew, None, None, _nbm_sp)
+    assert _r_n2 is None and _z_n2.L == _z_ew.L
+    # one side None: only ECMWF available
+    _z_ecmw, _r_ecmw = apply_ensemble_width(_z_ew, None, 12.0, _nbm_sp)
+    assert _r_ecmw is not None and _r_ecmw > 1.15
+    assert _z_ecmw.L < _z_ew.L
+
+    # --- combine_shifts ---
+    # same positive sign → max × boost
+    _cs1 = combine_shifts(2.0, 1.5)
+    assert abs(_cs1 - 2.4) < 1e-9, _cs1   # max(2.0, 1.5)=2.0 × 1.2=2.4
+    # same negative sign → max magnitude × boost, negative
+    _cs2 = combine_shifts(-2.0, -1.5)
+    assert abs(_cs2 - (-2.4)) < 1e-9, _cs2
+    # opposite sign → average (muted)
+    _cs3 = combine_shifts(2.0, -1.0)
+    assert abs(_cs3 - 0.5) < 1e-9, _cs3   # (2.0 + (-1.0)) / 2 = 0.5
+    # opposite sign, negative result
+    _cs4 = combine_shifts(-2.0, 1.0)
+    assert abs(_cs4 - (-0.5)) < 1e-9, _cs4
+    # one None → pass through the other
+    assert combine_shifts(None, 2.0) == 2.0
+    assert combine_shifts(2.0, None) == 2.0
+    assert combine_shifts(None, None) is None
+    # zero shift stays zero
+    _cs5 = combine_shifts(0.0, 0.0)
+    assert _cs5 == 0.0
+
+    # --- apply_trajectory_shift ---
+    # Use bracket that straddles p90=70 so the shift crosses the slope-change knot.
+    # Symmetric zones have equal slopes in [p10,p50] and [p50,p90]; probability within
+    # either segment is shift-invariant.  Brackets crossing p10 or p90 are not.
+    _z_traj = build_zones(50.0, 60.0, 70.0)
+    _rows_traj = run_model(
+        date(2026, 4, 10),
+        0.0,
+        "KXHIGHNY",
+        (50.0, 60.0, 70.0),
+        kalshi_markets=[
+            {
+                "ticker": "KXHIGHNY-26APR10-B70.5",
+                "title": "Will the high temp in NYC be 70-71° on Apr 10?",
+                "yes_bid_dollars": "0.03",
+                "yes_ask_dollars": "0.04",
+            }
+        ],
+    )
+    _mp_orig = _rows_traj[0].model_prob
+    # shift 2.0°F × 0.5 confidence = 1.0°F; bracket [69.5, 71.5] straddles p90=70
+    # — inner vs tail slope differ, so probability changes
+    _rows_shifted = apply_trajectory_shift(_z_traj, 2.0, 0.5, _rows_traj)
+    assert _rows_shifted[0].model_prob != _mp_orig, (
+        f"Trajectory shift did not change model_prob (bracket near p90 expected to change; "
+        f"orig={_mp_orig:.4f} new={_rows_shifted[0].model_prob:.4f})"
+    )
+    # None deviation → no change
+    _rows_none = apply_trajectory_shift(_z_traj, None, 0.5, _rows_traj)
+    assert _rows_none[0].model_prob == _mp_orig
+    # None confidence → no change
+    _rows_none2 = apply_trajectory_shift(_z_traj, 2.0, None, _rows_traj)
+    assert _rows_none2[0].model_prob == _mp_orig
+
+    # --- compute_trajectory_deviation ---
+    _sr_utc = datetime(2026, 4, 10, 10, 20, tzinfo=timezone.utc)  # ~6:20am ET
+    _as_of = _sr_utc + timedelta(hours=3)   # ~9:20am ET → < 10am → confidence 0.3
+    _fd, _tmp = tempfile.mkstemp(suffix=".db")
+    os.close(_fd)
+    try:
+        _conn = sqlite3.connect(_tmp)
+        _conn.execute(
+            """CREATE TABLE metar_observations (
+                observation_ts TEXT NOT NULL, station TEXT,
+                tmpf REAL, wind_dir_deg INTEGER,
+                wind_speed_kt INTEGER, sky_cover TEXT, fetch_ts TEXT
+            )"""
+        )
+        # Insert 4 observations starting at sunrise, warming 2°F/hr
+        for _i in range(4):
+            _ts = (_sr_utc + timedelta(hours=_i)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _conn.execute(
+                "INSERT INTO metar_observations (observation_ts, station, tmpf) VALUES (?, 'KNYC', ?)",
+                (_ts, 50.0 + _i * 2.0),
+            )
+        _conn.commit()
+        _conn.close()
+        _dev, _conf = compute_trajectory_deviation(
+            Path(_tmp),
+            date(2026, 4, 10),
+            forecast_high_f=70.0,
+            overnight_low_f=45.0,
+            sunrise_utc=_sr_utc,
+            as_of_utc=_as_of,
+        )
+        assert _dev is not None, f"Expected deviation, got None"
+        assert _conf is not None, f"Expected confidence, got None"
+        assert 0.0 < _conf <= 1.0, _conf
+        # with as_of_utc at 9:20am ET (hour_local < 10) → confidence should be 0.3  # PROVISIONAL
+        assert abs(_conf - 0.3) < 1e-9, f"Expected 0.3 confidence before 10am, got {_conf}"
+        # Fewer than 3 obs → (None, None)
+        _conn2 = sqlite3.connect(_tmp)
+        _conn2.execute("DELETE FROM metar_observations")
+        _conn2.execute(
+            "INSERT INTO metar_observations (observation_ts, station, tmpf) VALUES (?, 'KNYC', ?)",
+            (_sr_utc.strftime("%Y-%m-%dT%H:%M:%SZ"), 52.0),
+        )
+        _conn2.execute(
+            "INSERT INTO metar_observations (observation_ts, station, tmpf) VALUES (?, 'KNYC', ?)",
+            ((_sr_utc + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ"), 53.0),
+        )
+        _conn2.commit()
+        _conn2.close()
+        _dev2, _conf2 = compute_trajectory_deviation(
+            Path(_tmp), date(2026, 4, 10), 70.0, 45.0, _sr_utc, _as_of
+        )
+        assert _dev2 is None and _conf2 is None, f"Expected (None, None) with 2 obs, got ({_dev2}, {_conf2})"
+    finally:
+        os.unlink(_tmp)
+
+    # --- fetch_sunrise_sunset (type/order check; API or fallback both valid) ---
+    _sr_dt, _ss_dt = fetch_sunrise_sunset(KNYC_LAT, KNYC_LON, date(2026, 4, 10))
+    assert isinstance(_sr_dt, datetime) and _sr_dt.tzinfo is not None, "sunrise must be UTC-aware datetime"
+    assert isinstance(_ss_dt, datetime) and _ss_dt.tzinfo is not None, "sunset must be UTC-aware datetime"
+    assert _sr_dt < _ss_dt, f"sunrise {_sr_dt} must be before sunset {_ss_dt}"
+
     print("synthetic_self_test: ok")
 
 
