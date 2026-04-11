@@ -337,3 +337,18 @@ databases:
         WHERE outcome IS NOT NULL
         GROUP BY snapshot_type
         ORDER BY snapshot_type
+
+      edge_by_city: |-
+        SELECT
+          COALESCE(series_ticker, 'KXHIGHNY') AS series_ticker,
+          COUNT(DISTINCT event_date) AS n_days,
+          ROUND(AVG(edge), 4) AS mean_edge,
+          ROUND(AVG(ABS(edge)), 4) AS mean_abs_edge,
+          ROUND(AVG((model_prob - outcome) * (model_prob - outcome)), 6) AS brier,
+          ROUND(AVG((market_price - outcome) * (market_price - outcome)), 6) AS market_brier,
+          COUNT(*) AS n_snapshots
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'intraday'
+          AND outcome IS NOT NULL
+        GROUP BY COALESCE(series_ticker, 'KXHIGHNY')
+        ORDER BY mean_edge DESC

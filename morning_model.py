@@ -1213,6 +1213,7 @@ def compute_trajectory_deviation(
     overnight_low_f: float,
     sunrise_utc: datetime,
     as_of_utc: datetime,
+    station: str = "KNYC",
 ) -> tuple[Optional[float], Optional[float]]:
     """
     Compare observed METAR temperatures against the expected sinusoidal warming curve.
@@ -1260,13 +1261,13 @@ def compute_trajectory_deviation(
             obs_rows = conn.execute(
                 """
                 SELECT observation_ts, tmpf FROM metar_observations
-                WHERE station = 'KNYC'
+                WHERE station = ?
                   AND tmpf IS NOT NULL
                   AND observation_ts >= ?
                   AND observation_ts <= ?
                 ORDER BY observation_ts
                 """,
-                (sunrise_s, as_of_s),
+                (station, sunrise_s, as_of_s),
             ).fetchall()
         finally:
             conn.close()
@@ -1378,11 +1379,16 @@ def apply_trajectory_shift(
     return out
 
 
-def fetch_live_nbm_fahrenheit(lat: float, lon: float, target: date) -> tuple[tuple[float, float, float], dict[str, Any]]:
-    """NBP text TXNP1/5/9 in °F plus metadata."""
+def fetch_live_nbm_fahrenheit(
+    lat: float,
+    lon: float,
+    target: date,
+    station: str = NBP_STATION,
+) -> tuple[tuple[float, float, float], dict[str, Any]]:
+    """NBP text TXNP1/5/9 in °F plus metadata.  station defaults to KNYC."""
     grid_url = nws_grid_url_for_point(lat, lon)
     valid_start, nws_p50_f = nws_daily_max_period_for_date(grid_url, target)
-    p10, p50, p90, meta = fetch_pctmax_from_nbp_text(NBP_STATION, valid_start, nws_p50_f)
+    p10, p50, p90, meta = fetch_pctmax_from_nbp_text(station, valid_start, nws_p50_f)
     return (p10, p50, p90), meta
 
 

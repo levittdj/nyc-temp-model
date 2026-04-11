@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,6 +39,7 @@ TAKER_FEE_RATE = 0.07           # PROVISIONAL
 MAKER_FEE_RATE = 0.0175         # PROVISIONAL
 ENTRY_GATE_START_H = 8          # PROVISIONAL — no new entries before 8am ET
 ENTRY_GATE_END_H = 17           # PROVISIONAL — no new entries after 5pm ET
+COOLDOWN_MINUTES = 60           # PROVISIONAL — minutes to suppress re-entry after exit
 
 _TZ = "America/New_York"
 
@@ -192,6 +193,15 @@ def generate_signals(
            "dead bracket (model: CDF tail below bracket)" — HRRR/ensemble shift pushed
              the tail below the bracket boundary.  Still a forecast; can be wrong.
          The §5.3 decomposition query distinguishes these via reason LIKE patterns.
+      2a. Guard — opposing position: if BUY_YES and open NO position exists on the
+          same bracket, replace with EXIT on the NO position (and vice versa).
+          reason = "exit: opposing signal (was {side}, new signal {stype})".
+          This guard has priority over the cooldown guard.
+      2b. Guard — cooldown: if BUY_YES/SELL_YES and this bracket had a position
+          exit within the last COOLDOWN_MINUTES (PROVISIONAL: 60 min), skip the
+          entry.  Signal is still appended with contracts_suggested=0 and
+          reason="blocked: cooldown (exited ...)" so it lands in intraday_signals
+          with executed=0 for post-hoc analysis.
       3. Exit: overrides everything when existing open position and |edge| < EXIT_EDGE_THRESHOLD.
 
     Time gates (PROVISIONAL):
@@ -209,7 +219,7 @@ def generate_signals(
     snap_s = _utc_z(snapshot_ts)
     event_s = event_date.isoformat()
 
-    # Load open positions to enable EXIT signals
+    # Load open positions to enable EXIT signals and opposing-position guard
     open_positions: dict[tuple[str, str], dict[str, Any]] = {}
     try:
         conn = sqlite3.connect(str(db_path))
@@ -227,6 +237,28 @@ def generate_signals(
                     "contracts": ctrs,
                     "avg_entry_price": aep,
                 }
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    # Load recent exits for cooldown guard (COOLDOWN_MINUTES PROVISIONAL)
+    recent_exit_times: dict[str, str] = {}  # bracket_label → latest exit_ts string
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            _ensure_intraday_schema(conn)
+            cutoff_s = _utc_z(snapshot_ts - timedelta(minutes=COOLDOWN_MINUTES))
+            for bl, last_exit in conn.execute(
+                """
+                SELECT bracket_label, MAX(exit_ts) AS last_exit
+                FROM paper_positions
+                WHERE event_date = ? AND status = 'exited' AND exit_ts >= ?
+                GROUP BY bracket_label
+                """,
+                (event_s, cutoff_s),
+            ).fetchall():
+                recent_exit_times[str(bl)] = str(last_exit)
         finally:
             conn.close()
     except Exception:
@@ -283,34 +315,59 @@ def generate_signals(
                     f"still priced {market_price:.0%}"
                 )
 
-        # 3. Exit: overrides both when edge collapsed on an open position
+        # 2a. Guard — opposing position: if BUY_YES and open NO exists, EXIT the NO instead
+        #     (and vice versa).  Priority over cooldown guard.
+        _sizing_from_guard = False
+        contracts_suggested: int = 0
+        price_target: float = mid_price
         existing_yes = open_positions.get((label, "YES"))
         existing_no = open_positions.get((label, "NO"))
+        if signal_type in ("BUY_YES", "SELL_YES"):
+            opp_side = "NO" if signal_type == "BUY_YES" else "YES"
+            opp_pos = open_positions.get((label, opp_side))
+            if opp_pos is not None:
+                old_stype = signal_type
+                signal_type = "EXIT"
+                reason = f"exit: opposing signal (was {opp_side}, new signal {old_stype})"
+                contracts_suggested = int(opp_pos["contracts"])
+                price_target = mid_price
+                _sizing_from_guard = True
+
+        # 2b. Guard — cooldown: suppress re-entry within COOLDOWN_MINUTES of a prior exit
+        if signal_type in ("BUY_YES", "SELL_YES") and not _sizing_from_guard:
+            if label in recent_exit_times:
+                reason = f"blocked: cooldown (exited {recent_exit_times[label]})"
+                contracts_suggested = 0  # logged to DB with executed=0 but no position opened
+                _sizing_from_guard = True
+
+        # 3. Exit: overrides everything when edge collapsed on an open same-side position
         if abs(edge) < EXIT_EDGE_THRESHOLD:  # PROVISIONAL
             if existing_yes is not None:
                 signal_type = "EXIT"
                 reason = f"edge collapsed to {edge:+.1%} (YES position)"
+                _sizing_from_guard = False  # recompute sizing below
             elif existing_no is not None:
                 signal_type = "EXIT"
                 reason = f"edge collapsed to {edge:+.1%} (NO position)"
+                _sizing_from_guard = False
 
         if signal_type is None:
             continue
 
-        # Kelly sizing for entry signals
+        # Kelly sizing — skipped for guard-resolved signals (opposing EXIT, cooldown)
         kelly_full: Optional[float] = None
         kelly_capped_val: float = 0.0
-        contracts_suggested: int = 0
-        price_target: float = mid_price
-
-        if signal_type in ("BUY_YES", "SELL_YES"):
-            kelly_full, kelly_capped_val, contracts_suggested, price_target = _kelly_sizing(
-                signal_type, model_prob, bid_raw, ask_raw, market_price
-            )
-        elif signal_type == "EXIT":
-            existing = existing_yes or existing_no
-            contracts_suggested = int(existing["contracts"]) if existing else 0
+        if not _sizing_from_guard:
+            contracts_suggested = 0
             price_target = mid_price
+            if signal_type in ("BUY_YES", "SELL_YES"):
+                kelly_full, kelly_capped_val, contracts_suggested, price_target = _kelly_sizing(
+                    signal_type, model_prob, bid_raw, ask_raw, market_price
+                )
+            elif signal_type == "EXIT":
+                existing = existing_yes or existing_no
+                contracts_suggested = int(existing["contracts"]) if existing else 0
+                price_target = mid_price
 
         signals.append({
             "event_date": event_s,

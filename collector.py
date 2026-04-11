@@ -2,11 +2,14 @@
 """
 collector.py (v0 additive infra)
 
-At each run, capture *all* currently open KXHIGHNY event dates:
-- pull open markets for the series (KXHIGHNY)
+At each run, capture all currently open KXHIGH* event dates for all configured cities:
+- pull open markets for each series ticker
 - group by event_date parsed from ticker (e.g. 26MAR30)
-- for each event_date, pull NBM percentiles appropriate to that date and compute model_prob
+- for each event_date, pull NBM percentiles for that city and compute model_prob
 - log one snapshot per bracket with snapshot_type="intraday"
+
+Cities are configured in config.json under the "cities" key.  Backward-compatible
+with a single-city config that has only "nbm_bias" at the top level.
 
 This does not change v0 evaluation gates: evaluation uses morning_model.py
 snapshot_type="morning" rows only.
@@ -18,6 +21,7 @@ import argparse
 import csv
 import html
 import io
+import json
 import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -41,6 +45,7 @@ from morning_model import (
     DEFAULT_KALSHI_SERIES,
     KNYC_LAT,
     KNYC_LON,
+    NBP_STATION,
     BracketRow,
     ZoneModel,
     apply_ensemble_width,
@@ -308,10 +313,12 @@ def _to_int(v: str) -> Optional[int]:
 NOAA_METAR_URL = "https://aviationweather.gov/api/data/metar"
 
 
-def _fetch_knyc_metar_observations(sts_utc: datetime, ets_utc: datetime) -> list[dict[str, Any]]:
-    """Fetch KNYC METAR observations from NOAA Aviation Weather Center (primary source).
-    Returns rows with the same shape as the old IEM-based fetch."""
-    import json
+def _fetch_metar_observations(
+    sts_utc: datetime,
+    ets_utc: datetime,
+    station: str = "KNYC",
+) -> list[dict[str, Any]]:
+    """Fetch METAR observations from NOAA Aviation Weather Center for any ICAO station."""
     import math
     from urllib.parse import urlencode
     from urllib.request import Request, urlopen
@@ -322,7 +329,7 @@ def _fetch_knyc_metar_observations(sts_utc: datetime, ets_utc: datetime) -> list
     hours_back = math.ceil((now_utc - sts_utc).total_seconds() / 3600) + 1
     hours_back = max(hours_back, 1)
 
-    params = {"ids": "KNYC", "format": "json", "hours": hours_back}
+    params = {"ids": station, "format": "json", "hours": hours_back}
     url = f"{NOAA_METAR_URL}?{urlencode(params)}"
     req = Request(url, headers={"User-Agent": "(nyc-temp-model, local)"})
     with urlopen(req, timeout=60) as resp:
@@ -348,6 +355,11 @@ def _fetch_knyc_metar_observations(sts_utc: datetime, ets_utc: datetime) -> list
             }
         )
     return out
+
+
+def _fetch_knyc_metar_observations(sts_utc: datetime, ets_utc: datetime) -> list[dict[str, Any]]:
+    """Backward-compatible wrapper; use _fetch_metar_observations(station=...) for new callers."""
+    return _fetch_metar_observations(sts_utc, ets_utc, station="KNYC")
 
 
 def _rows_for_event(
@@ -415,40 +427,34 @@ def _rows_for_event(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="v0 collector (intraday snapshots; multi-event capture)")
-    ap.add_argument("--series", type=str, default=DEFAULT_KALSHI_SERIES)
+    ap = argparse.ArgumentParser(description="v0 collector (intraday snapshots; multi-city)")
+    ap.add_argument("--series", type=str, default=DEFAULT_KALSHI_SERIES,
+                    help="Override series ticker (ignored when config.json has cities list)")
     ap.add_argument("--config", type=Path, default=Path(__file__).resolve().parent / "config.json")
     ap.add_argument("--db", type=Path, default=Path(__file__).resolve().parent / DEFAULT_DB_NAME)
     args = ap.parse_args()
 
     snapshot_ts = datetime.now(timezone.utc)
-    nbm_bias = load_config(args.config)
 
-    # KNYC METAR 5-minute capture via 30-minute backfill gap pull.
-    metar_new_obs = False
+    # Load config: cities list with per-city params (backward-compatible with single-city config)
     try:
-        today_utc = snapshot_ts.date()
-        day_start_utc = datetime(today_utc.year, today_utc.month, today_utc.day, 6, 0, tzinfo=timezone.utc)
-        prev_metar_ts = latest_metar_observation_ts_utc(args.db, today_utc, station="KNYC")
-        last_obs = prev_metar_ts
-        sts_utc = last_obs if last_obs is not None else day_start_utc
-        if sts_utc < day_start_utc:
-            sts_utc = day_start_utc
-        if sts_utc > snapshot_ts:
-            # day_start_utc is in the future (overnight cron window, new UTC date, no obs yet)
-            sts_utc = snapshot_ts - timedelta(hours=2)
-        metar_rows = _fetch_knyc_metar_observations(sts_utc, snapshot_ts)
-        inserted = log_metar_observations(args.db, metar_rows, snapshot_ts, station="KNYC")
-        metar_new_obs = inserted > 0
-        print(
-            f"collector: metar backfill {sts_utc.strftime('%Y-%m-%dT%H:%M:%SZ')} -> "
-            f"{snapshot_ts.strftime('%Y-%m-%dT%H:%M:%SZ')} rows={len(metar_rows)} inserted={inserted}"
-        )
+        config_data = json.loads(args.config.read_text(encoding="utf-8"))
     except Exception:
-        # Observational feed should not block core collector run.
-        pass
+        config_data = {}
+    cities: list[dict[str, Any]] = config_data.get("cities", [])
+    if not cities:
+        # Backward compat: single NYC city derived from top-level nbm_bias
+        top_bias = load_config(args.config)
+        cities = [{
+            "series_ticker": args.series,
+            "station": NBP_STATION,
+            "lat": KNYC_LAT,
+            "lon": KNYC_LON,
+            "nbm_bias": top_bias,
+            "paper_trading": True,
+        }]
 
-    # Observational feeds (timing / backfill / analysis; may also inform model_prob when wired).
+    # DSM/CLI monitoring — NYC-specific; stays outside the city loop
     try:
         dsm_raw = _fetch_nws_product_text(DSM_URL)
         dsm = _parse_dsm_observation(dsm_raw, snapshot_ts)
@@ -467,7 +473,6 @@ def main() -> int:
                     f"collector: DSM running high changed for {dsm_event_date.isoformat()} -> {dsm_high}F"
                 )
     except Exception:
-        # Skip silently; retry next cycle.
         pass
 
     try:
@@ -490,204 +495,252 @@ def main() -> int:
                     f"(preliminary={str(cli_is_prelim).lower()})"
                 )
     except Exception:
-        # Skip silently; retry next cycle.
         pass
 
-    markets = fetch_open_kalshi_markets(args.series)
-    by_event: DefaultDict[date, list[dict[str, Any]]] = defaultdict(list)
-    for m in markets:
-        tkr = str(m.get("ticker", ""))
-        try:
-            d = _parse_event_date_from_ticker(tkr)
-        except Exception:
-            continue
-        by_event[d].append(m)
-    if not by_event:
-        raise SystemExit(f"No open {args.series} markets with parseable event dates.")
-
-    # For each open event_date, compute the appropriate NBM triple for that date.
     ny_tz = ZoneInfo("America/New_York")
     ny_today = snapshot_ts.astimezone(ny_tz).date()
-    for ev in sorted(by_event.keys()):
-        pct_f_raw, nbp_meta = fetch_live_nbm_fahrenheit(KNYC_LAT, KNYC_LON, ev)
-        # Intraday wind_speed_kt is METAR-derived (latest obs <= snapshot); morning_model uses NWS grid.
-        wkt = latest_metar_wind_speed_kt(args.db, snapshot_ts, station="KNYC")
-        olow, rhf = latest_morning_overnight_and_record_high(args.db, ev)
-        ens: dict[str, Any] = {}
+    total_events = 0
+
+    for city_cfg in cities:
+        series_ticker = str(city_cfg["series_ticker"])
+        station = str(city_cfg["station"])
+        lat = float(city_cfg["lat"])
+        lon = float(city_cfg["lon"])
+        city_nbm_bias = float(city_cfg.get("nbm_bias", 0.0))
+        paper_trading = bool(city_cfg.get("paper_trading", False))
+
         try:
-            ens = fetch_ensemble_spread(KNYC_LAT, KNYC_LON, ev)
-        except Exception:
-            pass
+            # METAR backfill for this city's station
+            metar_new_obs = False
+            try:
+                today_utc = snapshot_ts.date()
+                day_start_utc = datetime(today_utc.year, today_utc.month, today_utc.day, 6, 0, tzinfo=timezone.utc)
+                prev_metar_ts = latest_metar_observation_ts_utc(args.db, today_utc, station=station)
+                sts_utc = prev_metar_ts if prev_metar_ts is not None else day_start_utc
+                if sts_utc < day_start_utc:
+                    sts_utc = day_start_utc
+                if sts_utc > snapshot_ts:
+                    sts_utc = snapshot_ts - timedelta(hours=2)
+                metar_rows = _fetch_metar_observations(sts_utc, snapshot_ts, station=station)
+                inserted = log_metar_observations(args.db, metar_rows, snapshot_ts, station=station)
+                metar_new_obs = inserted > 0
+                print(
+                    f"collector[{series_ticker}]: metar backfill "
+                    f"{sts_utc.strftime('%Y-%m-%dT%H:%M:%SZ')} -> "
+                    f"{snapshot_ts.strftime('%Y-%m-%dT%H:%M:%SZ')} "
+                    f"rows={len(metar_rows)} inserted={inserted}"
+                )
+            except Exception:
+                pass
 
-        # --- Signal C: Ensemble width modulation (before bracket prob computation; §2.5 step 2) ---
-        # Build initial zone from NBM percentiles, then potentially widen/narrow L and U based
-        # on ensemble SD vs NBM-implied SD.  Inner knots (p10/p25/p50/p75/p90) stay fixed.
-        ensemble_width_ratio: Optional[float] = None
-        nbm_spread_raw_val = pct_f_raw[2] - pct_f_raw[0]
-        rows_base, z_nbm, nbm_p50_adj = _rows_for_event(ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta)
-        z_adj, ensemble_width_ratio = apply_ensemble_width(
-            z_nbm, ens.get("ens_gefs_sd_f"), ens.get("ens_ecmwf_sd_f"), nbm_spread_raw_val
-        )
-        if z_adj is not z_nbm:
-            # Recompute bracket probs from ensemble-adjusted zone (tails may differ from z_nbm)
-            rows, z = _rows_for_event(
-                ev, nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta, adjusted_zone=z_adj
-            )[:2]
-            print(
-                f"collector: ensemble width for {ev.isoformat()}: ratio={ensemble_width_ratio:.3f} "
-                f"L {z_nbm.L:.1f}->{z_adj.L:.1f}  U {z_nbm.U:.1f}->{z_adj.U:.1f}"
-            )
-        else:
-            rows, z = rows_base, z_nbm
-
-        # --- Signal B: HRRR shift with lead-time-dependent blend weight (§2.2) ---
-        hrrr_max_f: Optional[float] = None
-        hrrr_shift_applied_f: Optional[float] = None   # HRRR component alone (for logging/decomposition)
-        hrrr_blend_weight_val: Optional[float] = None
-        hrrr_shift_component: Optional[float] = None   # HRRR contribution before combining
-        forecast_lead_hours_val: Optional[float] = None
-        shift_raw_hrrr: Optional[float] = None
-        if ev in (ny_today, ny_today + timedelta(days=1)):
-            hrrr = fetch_hrrr_forecast(KNYC_LAT, KNYC_LON, ev, as_of_utc=snapshot_ts)
-            if hrrr and hrrr.get("hrrr_max_f") is not None:
+            markets = fetch_open_kalshi_markets(series_ticker)
+            by_event: DefaultDict[date, list[dict[str, Any]]] = defaultdict(list)
+            for m in markets:
+                tkr = str(m.get("ticker", ""))
                 try:
-                    hrrr_max_f = float(hrrr["hrrr_max_f"])
-                except (TypeError, ValueError):
-                    pass
-        if hrrr_max_f is not None:
-            forecast_lead_hours_val = _forecast_lead_hours(snapshot_ts, ev)
-            blend_weight = hrrr_blend_weight_for_lead(forecast_lead_hours_val)
-            hrrr_blend_weight_val = blend_weight
-            shift_raw_hrrr = hrrr_max_f - float(nbm_p50_adj)
-            if blend_weight > 0.0 and abs(shift_raw_hrrr) >= 1.0:  # PROVISIONAL threshold
-                hrrr_shift_component = shift_raw_hrrr * blend_weight
-                hrrr_shift_applied_f = hrrr_shift_component
-            else:
-                hrrr_shift_applied_f = 0.0  # HRRR present but no shift (below threshold or lead>12h)
+                    d = _parse_event_date_from_ticker(tkr)
+                except Exception:
+                    continue
+                by_event[d].append(m)
+            if not by_event:
+                print(f"collector[{series_ticker}]: no open markets with parseable event dates, skipping")
+                continue
 
-        # --- Signal D: METAR trajectory deviation (today's market only; §2.4) ---
-        # Skip when past assumed peak (lead ≤ 0) — truncation handles it from there.
-        trajectory_deviation_f: Optional[float] = None
-        trajectory_confidence: Optional[float] = None
-        trajectory_shift_component: Optional[float] = None
-        _traj_lead = _forecast_lead_hours(snapshot_ts, ev) if forecast_lead_hours_val is None else forecast_lead_hours_val
-        if ev == ny_today and _traj_lead > 0.0:
-            if olow is not None:
+            for ev in sorted(by_event.keys()):
+                pct_f_raw, nbp_meta = fetch_live_nbm_fahrenheit(lat, lon, ev, station=station)
+                wkt = latest_metar_wind_speed_kt(args.db, snapshot_ts, station=station)
+                olow, rhf = latest_morning_overnight_and_record_high(
+                    args.db, ev, series_ticker=series_ticker
+                )
+                ens: dict[str, Any] = {}
                 try:
-                    sunrise_utc, _ = fetch_sunrise_sunset(KNYC_LAT, KNYC_LON, ev)
-                    dev, conf = compute_trajectory_deviation(
-                        args.db, ev, float(nbm_p50_adj), float(olow), sunrise_utc, snapshot_ts
-                    )
-                    trajectory_deviation_f = dev
-                    trajectory_confidence = conf
+                    ens = fetch_ensemble_spread(lat, lon, ev)
                 except Exception:
                     pass
-                if trajectory_deviation_f is not None and trajectory_confidence is not None:
-                    trajectory_shift_component = trajectory_deviation_f * trajectory_confidence
-            else:
-                print(
-                    f"collector: trajectory deviation skipped for {ev.isoformat()}: "
-                    "overnight_low_f unavailable (no morning snapshot yet)"
+
+                # --- Signal C: Ensemble width modulation ---
+                ensemble_width_ratio: Optional[float] = None
+                nbm_spread_raw_val = pct_f_raw[2] - pct_f_raw[0]
+                rows_base, z_nbm, nbm_p50_adj = _rows_for_event(
+                    ev, city_nbm_bias, pct_f_raw, by_event[ev], nbp_meta=nbp_meta
                 )
-
-        # --- Combine and apply shifts B + D in one pass (§2.5 steps 4-5) ---
-        # Using apply_trajectory_shift(z, shift, 1.0, rows) as a generic "apply shift_f to zone"
-        # helper — confidence=1.0 means the full shift_f is applied as-is.
-        combined_shift_f: Optional[float] = None
-        if hrrr_shift_component is not None and trajectory_shift_component is not None:
-            combined_shift_f = combine_shifts(hrrr_shift_component, trajectory_shift_component)
-            rows = apply_trajectory_shift(z, combined_shift_f, 1.0, rows)
-            print(
-                f"collector: combined shift for {ev.isoformat()}: "
-                f"hrrr={hrrr_shift_component:+.2f}F traj={trajectory_shift_component:+.2f}F "
-                f"combined={combined_shift_f:+.2f}F (lead={forecast_lead_hours_val:.1f}h)"
-            )
-        elif hrrr_shift_component is not None:
-            combined_shift_f = hrrr_shift_component
-            rows = apply_trajectory_shift(z, hrrr_shift_component, 1.0, rows)
-            print(
-                f"collector: HRRR shift for {ev.isoformat()}: hrrr_max={hrrr_max_f:.1f}F "
-                f"nbm_p50={nbm_p50_adj:.1f}F raw={shift_raw_hrrr:+.1f}F "
-                f"applied={hrrr_shift_component:+.2f}F "
-                f"(lead={forecast_lead_hours_val:.1f}h blend={hrrr_blend_weight_val:.1f})"
-            )
-        elif trajectory_shift_component is not None:
-            combined_shift_f = trajectory_shift_component
-            rows = apply_trajectory_shift(z, trajectory_deviation_f, trajectory_confidence, rows)
-            print(
-                f"collector: trajectory shift for {ev.isoformat()}: "
-                f"deviation={trajectory_deviation_f:+.2f}F conf={trajectory_confidence:.2f} "
-                f"shift={trajectory_shift_component:+.2f}F"
-            )
-
-        # --- Signal A: Observed-max truncation — always last (§2.5 step 6) ---
-        observed_max_f_at_snapshot: Optional[float] = None
-        if ev == ny_today:
-            try:
-                observed_max_f_at_snapshot = running_observed_max_f(args.db, ev, snapshot_ts, station="KNYC")
-            except Exception:
-                observed_max_f_at_snapshot = None
-            if observed_max_f_at_snapshot is not None:
-                before = sum(1 for r in rows if r.model_prob == 0.0)
-                rows = truncate_and_renormalize(rows, observed_max_f_at_snapshot)
-                after = sum(1 for r in rows if r.model_prob == 0.0)
-                print(
-                    f"collector: truncation for {ev.isoformat()}: observed_max={observed_max_f_at_snapshot:.1f}F, "
-                    f"{max(0, after - before)} brackets zeroed"
+                z_adj, ensemble_width_ratio = apply_ensemble_width(
+                    z_nbm, ens.get("ens_gefs_sd_f"), ens.get("ens_ecmwf_sd_f"), nbm_spread_raw_val
                 )
+                if z_adj is not z_nbm:
+                    rows, z = _rows_for_event(
+                        ev, city_nbm_bias, pct_f_raw, by_event[ev],
+                        nbp_meta=nbp_meta, adjusted_zone=z_adj
+                    )[:2]
+                    print(
+                        f"collector[{series_ticker}]: ensemble width {ev.isoformat()}: "
+                        f"ratio={ensemble_width_ratio:.3f} "
+                        f"L {z_nbm.L:.1f}->{z_adj.L:.1f}  U {z_nbm.U:.1f}->{z_adj.U:.1f}"
+                    )
+                else:
+                    rows, z = rows_base, z_nbm
 
-        # --- Paper signal generation and execution (today's market only; §3) ---
-        if ev == ny_today:
-            try:
-                signals = generate_signals(
+                # --- Signal B: HRRR shift ---
+                hrrr_max_f: Optional[float] = None
+                hrrr_shift_applied_f: Optional[float] = None
+                hrrr_blend_weight_val: Optional[float] = None
+                hrrr_shift_component: Optional[float] = None
+                forecast_lead_hours_val: Optional[float] = None
+                shift_raw_hrrr: Optional[float] = None
+                if ev in (ny_today, ny_today + timedelta(days=1)):
+                    hrrr = fetch_hrrr_forecast(lat, lon, ev, as_of_utc=snapshot_ts)
+                    if hrrr and hrrr.get("hrrr_max_f") is not None:
+                        try:
+                            hrrr_max_f = float(hrrr["hrrr_max_f"])
+                        except (TypeError, ValueError):
+                            pass
+                if hrrr_max_f is not None:
+                    forecast_lead_hours_val = _forecast_lead_hours(snapshot_ts, ev)
+                    blend_weight = hrrr_blend_weight_for_lead(forecast_lead_hours_val)
+                    hrrr_blend_weight_val = blend_weight
+                    shift_raw_hrrr = hrrr_max_f - float(nbm_p50_adj)
+                    if blend_weight > 0.0 and abs(shift_raw_hrrr) >= 1.0:  # PROVISIONAL
+                        hrrr_shift_component = shift_raw_hrrr * blend_weight
+                        hrrr_shift_applied_f = hrrr_shift_component
+                    else:
+                        hrrr_shift_applied_f = 0.0
+
+                # --- Signal D: Trajectory deviation (today only) ---
+                trajectory_deviation_f: Optional[float] = None
+                trajectory_confidence: Optional[float] = None
+                trajectory_shift_component: Optional[float] = None
+                _traj_lead = (
+                    forecast_lead_hours_val
+                    if forecast_lead_hours_val is not None
+                    else _forecast_lead_hours(snapshot_ts, ev)
+                )
+                if ev == ny_today and _traj_lead > 0.0:
+                    if olow is not None:
+                        try:
+                            sunrise_utc, _ = fetch_sunrise_sunset(lat, lon, ev)
+                            dev, conf = compute_trajectory_deviation(
+                                args.db, ev, float(nbm_p50_adj), float(olow),
+                                sunrise_utc, snapshot_ts, station=station,
+                            )
+                            trajectory_deviation_f = dev
+                            trajectory_confidence = conf
+                        except Exception:
+                            pass
+                        if trajectory_deviation_f is not None and trajectory_confidence is not None:
+                            trajectory_shift_component = trajectory_deviation_f * trajectory_confidence
+                    else:
+                        print(
+                            f"collector[{series_ticker}]: trajectory skipped {ev.isoformat()}: "
+                            "overnight_low_f unavailable"
+                        )
+
+                # --- Combine and apply shifts ---
+                combined_shift_f: Optional[float] = None
+                if hrrr_shift_component is not None and trajectory_shift_component is not None:
+                    combined_shift_f = combine_shifts(hrrr_shift_component, trajectory_shift_component)
+                    rows = apply_trajectory_shift(z, combined_shift_f, 1.0, rows)
+                    print(
+                        f"collector[{series_ticker}]: combined shift {ev.isoformat()}: "
+                        f"hrrr={hrrr_shift_component:+.2f}F traj={trajectory_shift_component:+.2f}F "
+                        f"combined={combined_shift_f:+.2f}F (lead={forecast_lead_hours_val:.1f}h)"
+                    )
+                elif hrrr_shift_component is not None:
+                    combined_shift_f = hrrr_shift_component
+                    rows = apply_trajectory_shift(z, hrrr_shift_component, 1.0, rows)
+                    print(
+                        f"collector[{series_ticker}]: HRRR shift {ev.isoformat()}: "
+                        f"hrrr_max={hrrr_max_f:.1f}F nbm_p50={nbm_p50_adj:.1f}F "
+                        f"raw={shift_raw_hrrr:+.1f}F applied={hrrr_shift_component:+.2f}F "
+                        f"(lead={forecast_lead_hours_val:.1f}h blend={hrrr_blend_weight_val:.1f})"
+                    )
+                elif trajectory_shift_component is not None:
+                    combined_shift_f = trajectory_shift_component
+                    rows = apply_trajectory_shift(z, trajectory_deviation_f, trajectory_confidence, rows)
+                    print(
+                        f"collector[{series_ticker}]: trajectory shift {ev.isoformat()}: "
+                        f"dev={trajectory_deviation_f:+.2f}F conf={trajectory_confidence:.2f} "
+                        f"shift={trajectory_shift_component:+.2f}F"
+                    )
+
+                # --- Signal A: Truncation — always last ---
+                observed_max_f_at_snapshot: Optional[float] = None
+                if ev == ny_today:
+                    try:
+                        observed_max_f_at_snapshot = running_observed_max_f(
+                            args.db, ev, snapshot_ts, station=station
+                        )
+                    except Exception:
+                        observed_max_f_at_snapshot = None
+                    if observed_max_f_at_snapshot is not None:
+                        before = sum(1 for r in rows if r.model_prob == 0.0)
+                        rows = truncate_and_renormalize(rows, observed_max_f_at_snapshot)
+                        after = sum(1 for r in rows if r.model_prob == 0.0)
+                        print(
+                            f"collector[{series_ticker}]: truncation {ev.isoformat()}: "
+                            f"observed_max={observed_max_f_at_snapshot:.1f}F, "
+                            f"{max(0, after - before)} brackets zeroed"
+                        )
+
+                # --- Paper signals (today only, gated on paper_trading flag) ---
+                if paper_trading and ev == ny_today:
+                    try:
+                        signals = generate_signals(
+                            ev, rows, args.db, snapshot_ts, observed_max_f_at_snapshot,
+                            hrrr_shift_f=hrrr_shift_applied_f,
+                            trajectory_deviation_f=trajectory_deviation_f,
+                            ensemble_ratio=ensemble_width_ratio,
+                            forecast_lead_hours=forecast_lead_hours_val,
+                        )
+                        n_changed = execute_paper_trades(signals, args.db)
+                        if signals:
+                            print(
+                                f"collector[{series_ticker}]: signals {ev.isoformat()}: "
+                                f"{len(signals)} generated, {n_changed} position(s) changed"
+                            )
+                    except Exception as _e:
+                        print(f"collector[{series_ticker}]: intraday_engine error: {_e}")
+
+                log_morning_run(
+                    args.db,
                     ev,
                     rows,
-                    args.db,
-                    snapshot_ts,
-                    observed_max_f_at_snapshot,
-                    hrrr_shift_f=hrrr_shift_applied_f,
+                    pct_f_raw,
+                    city_nbm_bias,
+                    record_prox_flag=False,
+                    nws_log_context={
+                        "wind_speed_kt": wkt,
+                        "overnight_low_f": olow,
+                        "record_high_f": rhf,
+                    },
+                    snapshot_ts_utc=snapshot_ts,
+                    snapshot_type="intraday",
+                    nbp_meta=nbp_meta,
+                    records_path=Path(__file__).resolve().parent / "records.json",
+                    ensemble_snap=ens,
+                    observed_max_f_at_snapshot=observed_max_f_at_snapshot,
+                    hrrr_max_f=hrrr_max_f,
+                    hrrr_shift_applied_f=hrrr_shift_applied_f,
+                    metar_new_obs=metar_new_obs,
                     trajectory_deviation_f=trajectory_deviation_f,
-                    ensemble_ratio=ensemble_width_ratio,
-                    forecast_lead_hours=forecast_lead_hours_val,
+                    trajectory_confidence=trajectory_confidence,
+                    ensemble_width_ratio=ensemble_width_ratio,
+                    combined_shift_f=combined_shift_f,
+                    hrrr_blend_weight=hrrr_blend_weight_val,
+                    series_ticker=series_ticker,
                 )
-                n_changed = execute_paper_trades(signals, args.db)
-                if signals:
-                    print(
-                        f"collector: signals for {ev.isoformat()}: "
-                        f"{len(signals)} generated, {n_changed} position(s) changed"
-                    )
-            except Exception as _e:
-                print(f"collector: intraday_engine error for {ev.isoformat()}: {_e}")
 
-        log_morning_run(
-            args.db,
-            ev,
-            rows,
-            pct_f_raw,
-            nbm_bias,
-            record_prox_flag=False,
-            nws_log_context={
-                "wind_speed_kt": wkt,
-                "overnight_low_f": olow,
-                "record_high_f": rhf,
-            },
-            snapshot_ts_utc=snapshot_ts,
-            snapshot_type="intraday",
-            nbp_meta=nbp_meta,
-            records_path=Path(__file__).resolve().parent / "records.json",
-            ensemble_snap=ens,
-            observed_max_f_at_snapshot=observed_max_f_at_snapshot,
-            hrrr_max_f=hrrr_max_f,
-            hrrr_shift_applied_f=hrrr_shift_applied_f,
-            metar_new_obs=metar_new_obs,
-            trajectory_deviation_f=trajectory_deviation_f,
-            trajectory_confidence=trajectory_confidence,
-            ensemble_width_ratio=ensemble_width_ratio,
-            combined_shift_f=combined_shift_f,
-            hrrr_blend_weight=hrrr_blend_weight_val,
-        )
+            total_events += len(by_event)
+            print(
+                f"collector[{series_ticker}]: wrote {len(by_event)} event_date(s)"
+            )
 
-    print(f"collector: wrote intraday snapshots at {snapshot_ts.isoformat()} for {len(by_event)} event_date(s)")
+        except Exception as city_err:
+            print(f"collector[{series_ticker}]: city failed: {city_err}")
+
+    print(
+        f"collector: done at {snapshot_ts.strftime('%Y-%m-%dT%H:%M:%SZ')} — "
+        f"{len(cities)} city/cities, {total_events} event_date(s) total"
+    )
     return 0
 
 

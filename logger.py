@@ -85,6 +85,8 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     hrrr_max_f REAL,
     hrrr_shift_applied_f REAL,
 
+    series_ticker TEXT DEFAULT 'KXHIGHNY',
+
     PRIMARY KEY (event_date, snapshot_ts, snapshot_type, bracket_label)
 );
 
@@ -196,6 +198,7 @@ _BRACKET_SNAPSHOT_ALTER: Tuple[Tuple[str, str], ...] = (
     ("ensemble_width_ratio", "REAL"),
     ("combined_shift_f", "REAL"),
     ("hrrr_blend_weight", "REAL"),
+    ("series_ticker", "TEXT DEFAULT 'KXHIGHNY'"),
 )
 
 
@@ -512,8 +515,9 @@ def running_observed_max_f(
 def latest_morning_overnight_and_record_high(
     db_path: Path,
     event_date: date,
+    series_ticker: str = "KXHIGHNY",
 ) -> Tuple[Optional[float], Optional[float]]:
-    """overnight_low_f and record_high_f from the latest morning snapshot for event_date (any bracket row)."""
+    """overnight_low_f and record_high_f from the latest morning snapshot for event_date."""
     conn = sqlite3.connect(str(db_path))
     try:
         ensure_schema(conn)
@@ -522,10 +526,11 @@ def latest_morning_overnight_and_record_high(
             SELECT overnight_low_f, record_high_f
             FROM bracket_snapshots
             WHERE event_date = ? AND snapshot_type = 'morning'
+              AND COALESCE(series_ticker, 'KXHIGHNY') = ?
             ORDER BY snapshot_ts DESC
             LIMIT 1
             """,
-            (event_date.isoformat(),),
+            (event_date.isoformat(), series_ticker),
         ).fetchone()
         if not row:
             return None, None
@@ -654,6 +659,7 @@ def log_morning_run(
     ensemble_width_ratio: Optional[float] = None,
     combined_shift_f: Optional[float] = None,
     hrrr_blend_weight: Optional[float] = None,
+    series_ticker: str = "KXHIGHNY",
 ) -> None:
     """Insert one snapshot (one row per bracket) for a single event_date."""
     p10, p50, p90 = pct_f_raw
@@ -741,8 +747,9 @@ def log_morning_run(
                     observed_max_f_at_snapshot, hrrr_max_f, hrrr_shift_applied_f,
                     metar_new_obs,
                     trajectory_deviation_f, trajectory_confidence, ensemble_width_ratio,
-                    combined_shift_f, hrrr_blend_weight
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    combined_shift_f, hrrr_blend_weight,
+                    series_ticker
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     event_date.isoformat(),
@@ -796,6 +803,7 @@ def log_morning_run(
                     ensemble_width_ratio,
                     combined_shift_f,
                     hrrr_blend_weight,
+                    series_ticker,
                 ),
             )
         conn.commit()

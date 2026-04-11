@@ -1,3 +1,37 @@
 {
-  "nbm_bias": 0.2036
+  "nbm_bias": 0.2036,
+  "cities": [
+    {
+      "series_ticker": "KXHIGHNY",
+      "station": "KNYC",
+      "lat": 40.7789,
+      "lon": -73.9692,
+      "nbm_bias": 0.2036,
+      "paper_trading": true
+    },
+    {
+      "series_ticker": "KXHIGHCHI",
+      "station": "KORD",
+      "lat": 41.9742,
+      "lon": -87.9073,
+      "nbm_bias": 0.0,
+      "paper_trading": false
+    },
+    {
+      "series_ticker": "KXHIGHDEN",
+      "station": "KDEN",
+      "lat": 39.8561,
+      "lon": -104.6737,
+      "nbm_bias": 0.0,
+      "paper_trading": false
+    },
+    {
+      "series_ticker": "KXHIGHLAX",
+      "station": "KLAX",
+      "lat": 33.9425,
+      "lon": -118.4081,
+      "nbm_bias": 0.0,
+      "paper_trading": false
+    }
+  ]
 }
