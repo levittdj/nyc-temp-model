@@ -22,10 +22,11 @@ CHAT_ID = -5229782521
 conn = sqlite3.connect(DB)
 today = date.today().isoformat()
 
-# Find the most recent intraday snapshot for today
+# Find the most recent intraday snapshot for today (NYC only)
 latest_ts = conn.execute('''
     SELECT MAX(snapshot_ts) FROM bracket_snapshots
     WHERE event_date=? AND snapshot_type='intraday'
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
 ''', (today,)).fetchone()[0]
 
 if not latest_ts:
@@ -34,18 +35,21 @@ if not latest_ts:
 # Check if this snapshot captured a new METAR
 new_obs = conn.execute('''
     SELECT metar_new_obs FROM bracket_snapshots
-    WHERE event_date=? AND snapshot_ts=? LIMIT 1
+    WHERE event_date=? AND snapshot_ts=?
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
+    LIMIT 1
 ''', (today, latest_ts)).fetchone()
 
 if not new_obs or not new_obs[0]:
     sys.exit(0)
 
-# Fetch running high and bracket data from this snapshot
+# Fetch running high and bracket data from this snapshot (NYC only)
 rows = conn.execute('''
     SELECT bracket_label, bracket_lower_f, bracket_upper_f,
            market_price, model_prob, edge, observed_max_f_at_snapshot
     FROM bracket_snapshots
     WHERE event_date=? AND snapshot_ts=? AND snapshot_type='intraday'
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
     ORDER BY bracket_lower_f
 ''', (today, latest_ts)).fetchall()
 

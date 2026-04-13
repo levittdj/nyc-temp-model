@@ -83,6 +83,7 @@ overnight_start = datetime(now_utc.year, now_utc.month, now_utc.day, 4, 0, tzinf
 overnight_ts_rows = conn.execute('''
     SELECT DISTINCT snapshot_ts FROM bracket_snapshots
     WHERE snapshot_type='intraday'
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
       AND snapshot_ts >= ? AND snapshot_ts <= ?
     ORDER BY snapshot_ts
 ''', (overnight_start.strftime('%Y-%m-%dT%H:%M:%SZ'), now_utc.strftime('%Y-%m-%dT%H:%M:%SZ'))).fetchall()
@@ -97,10 +98,12 @@ for i in range(1, len(overnight_ticks)):
     old_rows = {(r[0], r[1]): r for r in conn.execute('''
         SELECT event_date, bracket_label, market_price FROM bracket_snapshots
         WHERE snapshot_type='intraday' AND snapshot_ts=?
+          AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
     ''', (ts_old,)).fetchall()}
     new_rows = {(r[0], r[1]): r for r in conn.execute('''
         SELECT event_date, bracket_label, market_price FROM bracket_snapshots
         WHERE snapshot_type='intraday' AND snapshot_ts=?
+          AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
     ''', (ts_new,)).fetchall()}
 
     moves_by_date = defaultdict(list)
@@ -132,26 +135,31 @@ for i in range(1, len(overnight_ticks)):
                         ('+' if move>0 else '') + str(int(move*100)) + 'c)'
                     )
 
-# Conviction crossings overnight
-for event_date_row in conn.execute(
-    'SELECT DISTINCT event_date FROM bracket_snapshots WHERE snapshot_type="intraday"'
-).fetchall():
+# Conviction crossings overnight (NYC only)
+for event_date_row in conn.execute('''
+    SELECT DISTINCT event_date FROM bracket_snapshots
+    WHERE snapshot_type='intraday'
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
+''').fetchall():
     event_date = event_date_row[0]
-    for label_row in conn.execute(
-        'SELECT DISTINCT bracket_label FROM bracket_snapshots WHERE snapshot_type="intraday" AND event_date=?',
-        (event_date,)
-    ).fetchall():
+    for label_row in conn.execute('''
+        SELECT DISTINCT bracket_label FROM bracket_snapshots
+        WHERE snapshot_type='intraday' AND event_date=?
+          AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
+    ''', (event_date,)).fetchall():
         label = label_row[0]
         # First crossing >= CONVICTION_THRESHOLD for this event_date/bracket
         first_cross = conn.execute('''
             SELECT MIN(snapshot_ts) FROM bracket_snapshots
             WHERE snapshot_type='intraday' AND event_date=? AND bracket_label=?
               AND market_price >= ?
+              AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
         ''', (event_date, label, CONVICTION_THRESHOLD)).fetchone()[0]
         if first_cross and overnight_start.strftime('%Y-%m-%dT%H:%M:%SZ') <= first_cross <= now_utc.strftime('%Y-%m-%dT%H:%M:%SZ'):
             price = conn.execute('''
                 SELECT market_price FROM bracket_snapshots
                 WHERE snapshot_type='intraday' AND event_date=? AND bracket_label=? AND snapshot_ts=?
+                  AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
             ''', (event_date, label, first_cross)).fetchone()[0]
             overnight_events.append(
                 first_cross[:16] + 'Z  ' + event_date + '  ' + label +

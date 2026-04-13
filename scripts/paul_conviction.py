@@ -7,10 +7,11 @@ CONVICTION_THRESHOLD = 0.70  # PROVISIONAL
 
 conn = sqlite3.connect(DB)
 
-# Latest intraday snapshot_ts
+# Latest intraday snapshot_ts (NYC only)
 latest = conn.execute('''
     SELECT DISTINCT snapshot_ts FROM bracket_snapshots
     WHERE snapshot_type='intraday'
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
     ORDER BY snapshot_ts DESC LIMIT 1
 ''').fetchone()
 
@@ -19,11 +20,12 @@ if not latest:
 
 ts_now = latest[0]
 
-# All brackets in the latest tick at or above threshold
+# All NYC brackets in the latest tick at or above threshold
 new_rows = conn.execute('''
     SELECT event_date, bracket_label, market_price
     FROM bracket_snapshots
     WHERE snapshot_type='intraday' AND snapshot_ts=? AND market_price >= ?
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
 ''', (ts_now, CONVICTION_THRESHOLD)).fetchall()
 
 if not new_rows:
@@ -37,6 +39,7 @@ for event_date, label, price in new_rows:
         WHERE snapshot_type='intraday'
           AND event_date=? AND bracket_label=?
           AND snapshot_ts < ?
+          AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
     ''', (event_date, label, ts_now)).fetchone()[0]
 
     if prior_high is None or prior_high < CONVICTION_THRESHOLD:

@@ -50,6 +50,7 @@ def main() -> int:
             SELECT MAX(snapshot_ts)
             FROM bracket_snapshots
             WHERE snapshot_type='intraday' AND event_date=?
+              AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
             """,
             (today,),
         ).fetchone()
@@ -63,6 +64,7 @@ def main() -> int:
             SELECT MAX(observed_max_f_at_snapshot)
             FROM bracket_snapshots
             WHERE snapshot_type='intraday' AND event_date=? AND snapshot_ts=?
+              AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
             """,
             (today, snap_ts),
         ).fetchone()
@@ -90,6 +92,7 @@ def main() -> int:
                    hrrr_max_f, hrrr_shift_applied_f
             FROM bracket_snapshots
             WHERE snapshot_type='intraday' AND event_date=? AND snapshot_ts=?
+              AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
             ORDER BY bracket_lower_f
             """,
             (today, snap_ts),

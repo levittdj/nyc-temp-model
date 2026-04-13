@@ -73,7 +73,8 @@ databases:
       todays_temp_trajectory: |-
         SELECT observation_ts, tmpf, wind_dir_deg, wind_speed_kt, sky_cover
         FROM metar_observations
-        WHERE observation_ts >= date('now', '-1 day')
+        WHERE station = 'KNYC'
+          AND observation_ts >= date('now', '-1 day')
         ORDER BY observation_ts
 
       peak_temp_by_date: |-
@@ -81,6 +82,7 @@ databases:
                MAX(tmpf) as metar_max_f,
                observation_ts as peak_time
         FROM metar_observations
+        WHERE station = 'KNYC'
         GROUP BY obs_date
         ORDER BY obs_date DESC
 

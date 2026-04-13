@@ -28,6 +28,7 @@ conn = sqlite3.connect(DB)
 recent_ts = conn.execute('''
     SELECT DISTINCT snapshot_ts FROM bracket_snapshots
     WHERE snapshot_type='intraday'
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
     ORDER BY snapshot_ts DESC LIMIT 2
 ''').fetchall()
 
@@ -40,12 +41,14 @@ new_rows = {(r[0], r[1]): r for r in conn.execute('''
     SELECT event_date, bracket_label, market_price, model_prob, edge
     FROM bracket_snapshots
     WHERE snapshot_type='intraday' AND snapshot_ts=?
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
 ''', (ts_new,)).fetchall()}
 
 old_rows = {(r[0], r[1]): r for r in conn.execute('''
     SELECT event_date, bracket_label, market_price, model_prob, edge
     FROM bracket_snapshots
     WHERE snapshot_type='intraday' AND snapshot_ts=?
+      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
 ''', (ts_old,)).fetchall()}
 
 # Compute all moves
