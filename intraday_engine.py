@@ -30,7 +30,14 @@ except ImportError:
 # ---------------------------------------------------------------------------
 ENTRY_EDGE_THRESHOLD = 0.08     # PROVISIONAL — min edge to enter (8¢)
 EXIT_EDGE_THRESHOLD = 0.02      # PROVISIONAL — exit when edge collapses to <2¢
-DEAD_BRACKET_FLOOR = 0.02       # PROVISIONAL — skip dead-bracket sells priced at ≤2¢
+DEAD_BRACKET_FLOOR = 0.04       # PROVISIONAL — was 0.02; raised to improve fee/profit ratio
+                                 # on dead bracket sells (5/29 losing at 2¢ floor)
+BUY_YES_MIN_MARKET_PRICE = 0.40  # PROVISIONAL — don't buy brackets market prices below 40¢;
+                                  # model CDF tail-width miscalibration causes false positive
+                                  # edge on cheap brackets (0W/27L in first 6 days)
+SELL_YES_MAX_MARKET_PRICE = 0.55  # PROVISIONAL — don't sell (buy NO on) brackets
+                                   # market prices above 55¢; model underestimates
+                                   # probability of likely winners (5/12 hit in first 6 days)
 BANKROLL = 1000.0               # PROVISIONAL — paper bankroll in dollars
 KELLY_FRACTION = 0.25           # PROVISIONAL — quarter Kelly (conservative)
 MAX_POSITION_FRAC = 0.15        # PROVISIONAL — max 15% of bankroll per bracket
@@ -40,6 +47,9 @@ MAKER_FEE_RATE = 0.0175         # PROVISIONAL
 ENTRY_GATE_START_H = 8          # PROVISIONAL — no new entries before 8am ET
 ENTRY_GATE_END_H = 17           # PROVISIONAL — no new entries after 5pm ET
 COOLDOWN_MINUTES = 60           # PROVISIONAL — minutes to suppress re-entry after exit
+MAX_DAILY_ENTRIES_PER_BRACKET = 1  # PROVISIONAL — one entry per (event_date, bracket_label, side)
+                                    # per day; prevents compounding into losing positions
+                                    # (15 duplicate bracket-days observed in first 6 days)
 
 _TZ = "America/New_York"
 
@@ -282,15 +292,30 @@ def generate_signals(
 
         signal_type: Optional[str] = None
         reason: Optional[str] = None
+        _sizing_from_guard = False
+        contracts_suggested: int = 0
+        price_target: float = mid_price
 
         # 1. Entry signals (time-gated)
         if within_entry_gate:
             if edge > ENTRY_EDGE_THRESHOLD:  # PROVISIONAL
-                signal_type = "BUY_YES"
-                reason = f"model {model_prob:.0%} > mkt {market_price:.0%}, edge {edge:+.1%}"
+                if market_price >= BUY_YES_MIN_MARKET_PRICE:  # PROVISIONAL — CDF tail guard
+                    signal_type = "BUY_YES"
+                    reason = f"model {model_prob:.0%} > mkt {market_price:.0%}, edge {edge:+.1%}"
+                else:
+                    signal_type = "BUY_YES"
+                    reason = f"blocked: market price {market_price:.0%} < {BUY_YES_MIN_MARKET_PRICE:.0%} floor"
+                    contracts_suggested = 0
+                    _sizing_from_guard = True
             elif edge < -ENTRY_EDGE_THRESHOLD:  # PROVISIONAL
-                signal_type = "SELL_YES"
-                reason = f"model {model_prob:.0%} < mkt {market_price:.0%}, edge {edge:+.1%}"
+                if market_price <= SELL_YES_MAX_MARKET_PRICE:  # PROVISIONAL — calibration guard
+                    signal_type = "SELL_YES"
+                    reason = f"model {model_prob:.0%} < mkt {market_price:.0%}, edge {edge:+.1%}"
+                else:
+                    signal_type = "SELL_YES"
+                    reason = f"blocked: market price {market_price:.0%} > {SELL_YES_MAX_MARKET_PRICE:.0%} ceiling"
+                    contracts_suggested = 0
+                    _sizing_from_guard = True
 
         # 2. Dead-bracket (overrides entry; exempt from time gate)
         # Split reason by cause so §5.3 decomposition can separate win rates:
@@ -317,9 +342,6 @@ def generate_signals(
 
         # 2a. Guard — opposing position: if BUY_YES and open NO exists, EXIT the NO instead
         #     (and vice versa).  Priority over cooldown guard.
-        _sizing_from_guard = False
-        contracts_suggested: int = 0
-        price_target: float = mid_price
         existing_yes = open_positions.get((label, "YES"))
         existing_no = open_positions.get((label, "NO"))
         if signal_type in ("BUY_YES", "SELL_YES"):
@@ -339,6 +361,31 @@ def generate_signals(
                 reason = f"blocked: cooldown (exited {recent_exit_times[label]})"
                 contracts_suggested = 0  # logged to DB with executed=0 but no position opened
                 _sizing_from_guard = True
+
+        # 2c. Guard — daily entry cap: at most MAX_DAILY_ENTRIES_PER_BRACKET entries
+        #     per (event_date, bracket_label, side) per day.  PROVISIONAL.
+        if signal_type in ("BUY_YES", "SELL_YES") and not _sizing_from_guard:
+            side_check = "YES" if signal_type == "BUY_YES" else "NO"
+            try:
+                conn = sqlite3.connect(str(db_path))
+                try:
+                    _ensure_intraday_schema(conn)
+                    prior_entries = conn.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM paper_positions
+                        WHERE event_date = ? AND bracket_label = ? AND side = ?
+                        """,
+                        (event_s, label, side_check),
+                    ).fetchone()
+                    if prior_entries and int(prior_entries[0]) >= MAX_DAILY_ENTRIES_PER_BRACKET:
+                        reason = f"blocked: daily entry cap ({prior_entries[0]} prior entries for {label} {side_check})"
+                        contracts_suggested = 0
+                        _sizing_from_guard = True
+                finally:
+                    conn.close()
+            except Exception:
+                pass
 
         # 3. Exit: overrides everything when edge collapsed on an open same-side position
         if abs(edge) < EXIT_EDGE_THRESHOLD:  # PROVISIONAL
