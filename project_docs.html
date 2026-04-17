@@ -311,7 +311,7 @@ section { margin-bottom: 8px }
     <div style="background:var(--bg2);border-bottom:1px solid var(--border);padding:12px 16px;display:flex;align-items:center;gap:10px">
       <div class="dot"></div>
       <div class="topbar-title">NYC TEMP MODEL -- PROJECT DOCS</div>
-      <div class="phase-pill">V0 -- BUILD NOW</div>
+      <div class="phase-pill">V0 -- PAPER + REVIEW</div>
     </div>
   </div>
   <div class="main">
@@ -327,14 +327,14 @@ section { margin-bottom: 8px }
       <div class="panel-title">Project status</div>
       <div class="panel-lead">This project is an evidence-gathering instrument. The goal is to learn quickly whether a repeatable pricing gap exists — not to build a production trading system.</div>
 
-      <div class="note amber"><strong>Current priority:</strong> run a simple, consistent daily process for ~20–30 days and decide — based on data — whether the hypothesis is supported or falsified.</div>
+      <div class="note amber"><strong>Current priority:</strong> paper-trade the intraday engine, review daily in Streamlit and Datasette, and let 20–30 days of settled outcomes decide the v0 gate. Real money stays off the table.</div>
 
-      <div class="note green"><strong>Progress (2026-04-06):</strong> v0 is operational end-to-end: <strong>morning_model on VM cron</strong>, intraday collector, SQLite logging, outcome backfill (IEM daily KNYC + <code>--actual-max</code>; no ASOS hourly settlement). Datasette is live for review; Telegram is live. <strong>Paul alert crons are live</strong> — morning edge summary (with NBM shift check), settlement digest, collector health, backfill check, price move (with multi-bracket sweep detection), and conviction (first bracket to cross 70%). Paper nudges only — no execution from core repo. <strong>Next:</strong> run ~20–30 days and evaluate v0 gate.</div>
+      <div class="note green"><strong>Progress (2026-04-16):</strong> v0 is now a closed loop — <strong>morning_model</strong>, <strong>collector</strong>, <strong>logger backfill</strong>, and the <strong>intraday_engine.py paper-trading engine</strong> all run on VM cron; the engine writes <code>intraday_signals</code> + <code>paper_positions</code> and settles them against CLI outcomes. Review tooling: <strong>Datasette</strong> (live, canned queries incl. paper P&amp;L), <strong>Streamlit dashboard</strong> on :8501 (KPIs, equity curve, trade log, open positions, signal decomposition, calibration scatter, NBM revisions, blocked signals, per-event drill-down page), and the full <strong>Paul alert fleet</strong> (morning edge + NBM shift, settlement, collector health, backfill, sharp price move + sweep, conviction 70%, intraday edge, 7:30pm lotto, paper-signal digest, METAR freshness / reaction). Dashboard and alerts are <strong>read-only / advisory</strong> — no live execution from this repo in v0. First 6-day paper sample landed net <strong>&minus;$45.70</strong> driven by BUY_YES on cheap brackets; four PROVISIONAL guardrails have been shipped to <code>intraday_engine.py</code> and the CDF-tail root-cause work is queued (see Decisions Log).</div>
 
       <div class="sec">What we are building right now</div>
       <div class="ver-banner v0">
         <span class="ver-tag v0">V0</span>
-        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Secondary v0 hypothesis (H3):</strong> Across daily-high temperature markets (cities/series), edge and economic attractiveness need not be uniform — some markets may be far more informative or profitable than others; v0 measures heterogeneity rather than assuming one locale generalizes.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a></div>
+        <div class="ver-label"><strong>Hypothesis instrument.</strong> A lightweight pipeline that logs forecasts, market prices, and outcomes so we can evaluate whether the market is systematically mispriced.<br><br><strong>Core hypothesis (updated 2026-03-30):</strong> Kalshi NYC temperature markets systematically misallocate probability mass across brackets relative to probabilities implied by p10/p50/p90 NBM guidance. Research suggests the most likely direction is favorite-longshot bias -- tail brackets overpriced, middle brackets underpriced -- consistent with the platform-wide pattern documented in Bürgi et al. (2026) and the anecdotal participant signal. However, weather markets may behave differently due to bot activity and ensemble model availability. Direction remains an output of v0 data.<br><br><strong>Early evidence (2026-04-15, 6 days, 71 paper positions):</strong> pooled paper P&amp;L is negative; the only profitable signal is dead-bracket SELL_YES at the 2&cent; floor. BUY_YES on cheap brackets (&lt;40&cent;) is 0W/27L. Working diagnosis: the 5-knot/3-knot CDF with mirror-reflected tails assigns too much mass to brackets far from center. Guardrails are shipped (PROVISIONAL); a CDF-tail rebuild is queued as a separate workstream.<br><br><strong>Secondary v0 hypothesis (H3):</strong> Across daily-high temperature markets (cities/series), edge and economic attractiveness need not be uniform — some markets may be far more informative or profitable than others; v0 measures heterogeneity rather than assuming one locale generalizes.<br><br><strong>Live data:</strong> <a href="http://44.200.244.240:8001/nyc_temp_log?sql=select+*+from+bracket_snapshots" target="_blank" rel="noopener noreferrer" style="color:var(--blue2);text-decoration:none">Datasette (bracket_snapshots)</a> &middot; Streamlit paper-trade dashboard on VM port <strong>8501</strong> (read-only).</div>
       </div>
 
       <div class="sec">What comes next if v0 shows signal</div>
@@ -556,8 +556,8 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
-              <div class="task-text done">NBP TXNP2 / TXNP7 / TXNSD + 5-knot zone CDF (optional)</div>
-              <div class="task-note"><strong>Implemented:</strong> NBP text parser already exposed all rows; <code>fetch_pctmax_from_nbp_text</code> now pulls TXNP2 (p25), TXNP7 (p75), and TXNSD when present. <code>build_zones()</code> uses a 7-knot piecewise CDF with tail mirroring <code>L = 2×p10 − p25</code>, <code>U = 2×p90 − p75</code> when quartiles validate; otherwise legacy 3-knot. <code>model_prob_triplet_cdf</code> logs the same brackets under the triplet CDF for A/B in Datasette. Columns <code>nbm_p25_raw</code>, <code>nbm_p75_raw</code>, <code>nbm_sd_raw</code> on morning + intraday rows. v0 evaluation gates unchanged.</div>
+              <div class="task-text done">NBP TXNP2 / TXNP7 / TXNSD + 5-knot zone CDF (now primary)</div>
+              <div class="task-note"><strong>Implemented, promoted to primary (2026-04-XX):</strong> NBP text parser pulls TXNP2 (p25), TXNP7 (p75), and TXNSD. <code>build_zones()</code> uses the 5/7-knot piecewise CDF with tail mirroring <code>L = 2×p10 − p25</code>, <code>U = 2×p90 − p75</code> whenever quartiles validate — this is now the default <code>model_prob</code> path. The legacy 3-knot CDF remains available as a fallback and emits a <code>[morning_model] WARNING</code> / <code>[collector] WARNING</code> to stderr when it fires. <code>model_prob_triplet_cdf</code> is still logged alongside the primary value so Datasette can A/B them (see canned query <code>quint_cdf_availability</code>). Columns <code>nbm_p25_raw</code>, <code>nbm_p75_raw</code>, <code>nbm_sd_raw</code> on morning + intraday rows.</div>
             </div>
           </div>
 
@@ -707,6 +707,112 @@ section { margin-bottom: 8px }
         </div>
       </div>
 
+      <div class="phase-block open" id="phase-paper-engine">
+        <div class="phase-header" onclick="togglePhase('phase-paper-engine')">
+          <span class="phase-num">PAPER</span>
+          <span class="phase-name">intraday_engine.py (paper trading)</span>
+          <span class="badge badge-active">Active</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Paper positions + intraday signals persisted in SQLite</div>
+              <div class="task-note"><strong>Implemented:</strong> <code>intraday_engine.py</code> writes to two new tables — <code>intraday_signals</code> (every bracket-tick decision: <code>BUY_YES</code> / <code>SELL_YES</code> / <code>EXIT</code>, edge, reason, executed 0/1) and <code>paper_positions</code> (<code>side</code>, <code>contracts</code>, <code>avg_entry_price</code>, entry/exit fees, <code>pnl_gross</code>, <code>pnl_net</code>, <code>status</code>, <code>entry_signal_id</code>, settlement outcome). Fee model matches Kalshi taker schedule. Settlement writes <code>pnl_net</code> on CLI backfill. No order execution against Kalshi — strictly a paper engine.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Entry / exit signal generator on every collector tick</div>
+              <div class="task-note"><strong>Implemented:</strong> for each open (<code>event_date</code>, <code>bracket_label</code>) at an intraday snapshot the engine generates (a) directional entries gated on <code>|edge| &gt; ENTRY_EDGE_THRESHOLD</code> and an entry-time window, (b) a dead-bracket override (SELL_YES when <code>model_prob == 0</code> and <code>market_price &gt; DEAD_BRACKET_FLOOR</code>), and (c) hard exits on edge flip / late-day salvage. Every candidate — executed or blocked — is logged to <code>intraday_signals</code> with <code>reason</code>, so the dashboard can do counterfactual accounting.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">PROVISIONAL guardrails from 6-day paper review (2026-04-15)</div>
+              <div class="task-note"><strong>Shipped.</strong> Four guardrails added to <code>intraday_engine.py</code> after a 71-position / 6-day review landed net &minus;$45.70: (1) <code>BUY_YES_MIN_MARKET_PRICE = 0.40</code> — don't buy brackets priced below 40&cent; (0W/27L in sample); (2) <code>DEAD_BRACKET_FLOOR = 0.04</code> (was 0.02) — improves fee/profit ratio on dead-bracket sells; (3) <code>SELL_YES_MAX_MARKET_PRICE = 0.55</code> — don't short likely-winner brackets (model underestimates winner prob 5/12 in sample); (4) <code>MAX_DAILY_ENTRIES_PER_BRACKET = 1</code> — one entry per (<code>event_date</code>, <code>bracket_label</code>, <code>side</code>). All tagged <strong>PROVISIONAL</strong>. Blocked candidates still log to <code>intraday_signals</code> with <code>executed=0</code> so counterfactual P&amp;L is measurable. Root cause (CDF tail width too fat) is separate work — see Decisions Log.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Kalshi taker fee model matches live schedule</div>
+              <div class="task-note">Entry + exit fees computed on each paper fill and stored per position. Fee drag surfaces as a dashboard KPI so we can tell whether edge survives costs before touching real money.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">CDF tail-shape investigation (separate workstream)</div>
+              <div class="task-note"><strong>Queued.</strong> The mirror-reflected tails <code>L = 2·p10 − p25</code> / <code>U = 2·p90 − p75</code> (and legacy <code>L = 2·p10 − p50</code>) appear to systematically over-assign mass to far-from-center brackets. Investigation plan: (1) run <code>market_as_probability_brier</code> canned query to check for Layer-1 failure (market beats model as a probability); (2) compare <code>model_prob</code> vs <code>model_prob_triplet_cdf</code> on settled rows; (3) prototype a parametric tail (skew-normal or <code>TXNSD</code>-driven tail width) as a replacement. Do not remove the paper guardrails until the rebuilt CDF is evaluated on fresh settled rows.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Keep live execution explicitly out of scope for v0</div>
+              <div class="task-note">The engine can produce order-like signals but must never hit the Kalshi trade endpoint in v0. Live execution is a deliberate V1 gate — see V1-B / V1-C phases. <code>snapshot_type=&apos;morning&apos;</code> rows remain the pre-registered v0 evaluation baseline independent of paper P&amp;L.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="phase-block open" id="phase-dash">
+        <div class="phase-header" onclick="togglePhase('phase-dash')">
+          <span class="phase-num">DASH</span>
+          <span class="phase-name">Streamlit paper-trade dashboard</span>
+          <span class="badge badge-active">Active</span>
+          <span class="chev">></span>
+        </div>
+        <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Stage 0 — scaffold + read-only DB connection</div>
+              <div class="task-note"><strong>Shipped.</strong> <code>dashboard/</code> package with <code>db.py</code> opening SQLite in <code>file:...?mode=ro</code> URI mode (collector + backfill are the only writers — dashboard must never race them). <code>queries.py</code> is the single home for SQL. <code>dashboard.sh</code> wrapper activates the venv and runs Streamlit on <strong>port 8501</strong>; logs to <code>logs/dashboard.log</code>.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Stage 1 — timeframe filter, KPIs, equity curve, trade log</div>
+              <div class="task-note"><strong>Shipped.</strong> Segmented-control timeframe filter (Today / 7d / 30d / All time / Custom) in <code>filters.py</code>, resolving to ET-midnight bounds for SQL. Five KPI tiles (period net P&amp;L, win rate, trades closed, fee drag %, all-time cumulative net). <code>st.line_chart</code> equity curve over closed positions. Sortable trade log joining <code>paper_positions</code> to the originating <code>intraday_signals.reason</code>.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Stage 2 — open positions, signal decomposition, fee detail</div>
+              <div class="task-note"><strong>Shipped.</strong> Open-positions table with live unrealized P&amp;L using the exact formula from <code>scripts/paul_price_move.py</code> (YES: <code>contracts × (mkt − entry)</code>; NO: <code>contracts × ((1 − mkt) − entry)</code>) and latest <code>market_price</code> / <code>hours_to_settle</code> from <code>bracket_snapshots</code>. Signal-decomposition bar chart + table grouped by <code>signal_source</code> (CASE logic copied verbatim from <code>paper_signal_decomposition</code> in <code>metadata.yml</code>). Signal-type breakdown keeps <code>BUY_YES</code> / <code>SELL_YES</code> / <code>EXIT</code> separate. Fee-detail expander for entry/exit/drag/per-contract averages.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Stage 3 — calibration, NBM revisions, blocked signals, per-event drill-down</div>
+              <div class="task-note"><strong>Shipped; three sections temporarily disabled on main page.</strong> All queries + renderers are in the codebase and the <strong>per-event drill-down</strong> page is live (selectbox over <code>event_date</code>s with paper positions; day-summary header; Plotly multi-bracket <code>market_price</code> + dashed <code>model_prob</code> overlay with <code>running_high_f</code> from <code>dsm_observations</code> on a secondary axis; tables of every signal and position for the day). On the main page, <strong>calibration</strong> (Plotly scatter of edge-at-entry vs <code>pnl_net/contract</code>, lowess trend, BUY/SELL color split), <strong>NBM revisions</strong> (morning <code>p50_adj</code> vs latest intraday with <code>|delta| &ge; 2°F</code> <strong>PROVISIONAL</strong> highlight), and <strong>blocked signals</strong> (counts-by-reason + 20 most recent) are commented out in <code>dashboard/app.py</code> pending re-enable — render functions still exported from <code>dashboard/sections/</code>.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check done"></div>
+            <div class="task-body">
+              <div class="task-text done">Stage 4 — ET timestamps + $ currency formatting throughout</div>
+              <div class="task-note"><strong>Shipped (2026-04-16).</strong> Display layer converts every UTC timestamp to America/New_York ET (captions, chart axes, tables, drill-down). Monetary columns moved from cents-as-string to raw float <code>$X.XX</code> via <code>st.column_config.NumberColumn(format="$%.2f")</code> so tables stay sortable. DB itself still stores UTC ISO-8601 (matches <code>logger.py</code> semantics); only the presentation layer moved.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Ops: health check for dashboard process + VM firewall for :8501</div>
+              <div class="task-note">Not strictly blocking — dashboard is read-only and restart is cheap. Add a heartbeat check alongside collector health once paper sample size doubles and daily review becomes routine.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="phase-block open" id="phase-paper">
         <div class="phase-header" onclick="togglePhase('phase-paper')">
           <span class="phase-num">RUN</span>
@@ -718,22 +824,32 @@ section { margin-bottom: 8px }
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
-              <div class="task-text">Keep 7am morning_model cron healthy; paper log 20–30 days</div>
-              <div class="task-note">Morning snapshot is automated on the VM (e.g. <code>morning_model.sh</code>). Spot-check logs/Datasette for fresh <code>snapshot_type=morning</code> rows. Paper trades: record what you would have bet at the morning price.</div>
+              <div class="task-text">Keep 7am morning_model + intraday engine + collector healthy for 20–30 days</div>
+              <div class="task-note">Morning snapshot, collector, and <code>intraday_engine.py</code> paper trading all run automated on VM cron. Spot-check each day: (1) one fresh <code>snapshot_type=morning</code> row per <code>event_date</code>, (2) intraday snapshots at expected cadence, (3) new rows in <code>intraday_signals</code> and <code>paper_positions</code>, (4) CLI backfill wrote <code>pnl_net</code> for yesterday. Datasette + Streamlit dashboard are the two review surfaces.</div>
+            </div>
+          </div>
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Daily dashboard review — paper P&amp;L, calibration, blocked signals</div>
+              <div class="task-note">Walk the Streamlit dashboard (port 8501) each morning after backfill: KPI tiles, equity curve, trade log, open-positions (live unrealized), signal decomposition, calibration scatter, NBM revisions, blocked signals. Use the per-event drill-down page for any day with surprising P&amp;L or large <code>|delta p50|</code>. Record paper decisions (kept / overridden) for the v0 gate writeup.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check done"></div>
             <div class="task-body">
               <div class="task-text done">Cron + Paul: proactive Telegram on market moves and opportunities</div>
-              <div class="task-note"><strong>Live.</strong> Six alert scripts running on VM cron, all sending to the Telegram group via Bot API (no OpenClaw dependency):<br><br>
-<strong>paul_morning_edge.py</strong> — 7:15am ET (11:15 UTC). Today's morning bracket table (model / market / edge per bracket) + NBM p50 shift check vs earliest intraday for same event_date. Threshold: 2°F <strong>PROVISIONAL</strong>.<br><br>
-<strong>paul_settlement.py</strong> — 10:15am ET (14:15 UTC). Yesterday's settlement: winning bracket, model vs market prob, running Brier score.<br><br>
-<strong>paul_collector_health.py</strong> — Every 2 hours (12/14/16/18/20/22/00 UTC). Silent if last intraday snapshot &lt;90 min old; alerts if stalled.<br><br>
-<strong>paul_backfill_check.py</strong> — 10:00am ET (14:00 UTC). Silent if all past event_dates have <code>actual_max_f</code>; alerts with list of missing dates.<br><br>
-<strong>paul_price_move.py</strong> — Every 30 min, same cadence as collector. Two alert types: (1) individual bracket move ≥15¢ <strong>PROVISIONAL</strong>; (2) sweep alert if 3+ brackets each move ≥10¢ in the same window (redistribution = new information). Includes Paul narrative on whether market is moving toward or away from model.<br><br>
-<strong>paul_conviction.py</strong> — Every 30 min, same cadence as collector. Fires once per event_date/bracket when market_price first crosses 70%. Checks full history to avoid re-alerting after collector gaps.<br><br>
-All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only — no order execution from core repo in v0.</div>
+              <div class="task-note"><strong>Live.</strong> Full alert fleet runs on VM cron, all sending to the Telegram group via Bot API (no OpenClaw dependency). All numeric thresholds are <strong>PROVISIONAL</strong>. Purpose: research + paper nudges — no order execution from core repo in v0.<br><br>
+<strong>paul_morning_edge.py</strong> — 7:15am ET. Today's morning bracket table (model / market / edge) + NBM p50 shift check vs earliest intraday for same event_date (2°F threshold).<br><br>
+<strong>paul_settlement.py</strong> — 10:15am ET. Yesterday's settlement: winning bracket, model vs market prob, running Brier score.<br><br>
+<strong>paul_collector_health.py</strong> — every 2 hours. Silent if last intraday snapshot &lt;90 min old; alerts if stalled.<br><br>
+<strong>paul_backfill_check.py</strong> — 10:00am ET. Silent if all past event_dates have <code>actual_max_f</code>; alerts with list of missing dates.<br><br>
+<strong>paul_price_move.py</strong> — every 30 min. (1) individual bracket move ≥15¢; (2) sweep alert when 3+ brackets each move ≥10¢ in the same window. Includes narrative on whether market is moving toward or away from model.<br><br>
+<strong>paul_conviction.py</strong> — every 30 min. Fires once per <code>(event_date, bracket)</code> when <code>market_price</code> first crosses 70%.<br><br>
+<strong>paul_intraday_edge.py</strong> — intraday ticks. Surfaces live <code>|edge|</code> opportunities over threshold for the paper engine's view of the market.<br><br>
+<strong>paul_paper_signals.py</strong> — digest of executed + blocked <code>intraday_signals</code> since last run, so paper decisions are auditable in the same Telegram stream.<br><br>
+<strong>paul_730pm_lotto.py</strong> — 7:30pm ET. End-of-day lottery-ticket scan for long-tail paper plays.<br><br>
+<strong>paul_metar_check.py</strong> / <strong>paul_metar_react.py</strong> — monitor KNYC METAR freshness and alert on temperature moves that should propagate into prices.</div>
             </div>
           </div>
           <div class="task" onclick="toggleTask(this)">
@@ -812,11 +928,18 @@ All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only 
       <div class="phase-block" id="phase-intra">
         <div class="phase-header" onclick="togglePhase('phase-intra')">
           <span class="phase-num">V1-B</span>
-          <span class="phase-name">intraday_engine.py</span>
+          <span class="phase-name">intraday_engine.py — live-execution half</span>
           <span class="badge badge-v1">V1</span>
           <span class="chev">></span>
         </div>
         <div class="phase-tasks">
+          <div class="task" onclick="toggleTask(this)">
+            <div class="task-check"></div>
+            <div class="task-body">
+              <div class="task-text">Note: paper half of this engine ships in v0 (PAPER phase)</div>
+              <div class="task-note">The paper-trading engine (signal generator, fee model, paper_positions, PROVISIONAL guardrails) is already live under the v0 PAPER phase. The V1-B tasks below are the <strong>live-execution</strong> half — they only unlock once the v0 gate passes and v0 data has set real thresholds.</div>
+            </div>
+          </div>
           <div class="task" onclick="toggleTask(this)">
             <div class="task-check"></div>
             <div class="task-body">
@@ -959,6 +1082,31 @@ All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only 
       <div class="panel-lead">Most important decisions, categorised. Add new decisions at the top of each category with a date. Update before writing code.</div>
 
       <div class="sec">Methodology</div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-04-16 — Streamlit paper-trade review dashboard on :8501</div></div>
+        <div class="dec-why">Introduced <code>dashboard/</code> as a <strong>read-only</strong> Streamlit app so paper P&amp;L, calibration, NBM revisions, blocked signals, and per-event drill-downs live in one place rather than being rebuilt as ad-hoc Datasette queries each morning. Strict separation: DB opened via <code>file:...?mode=ro</code> URI; all SQL in <code>dashboard/queries.py</code>; all display in <code>dashboard/sections/</code>; no caching, no counterfactual P&amp;L. Datasette remains the general-purpose browser. Launched via <code>dashboard.sh</code> on VM port 8501 with logs to <code>logs/dashboard.log</code>.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-16 — Dashboard display in ET + $; DB still stores UTC</div></div>
+        <div class="dec-why">Dashboard converts every UTC timestamp to America/New_York for display (captions, chart axes, tables, drill-down) and renders money as <code>$X.XX</code> via <code>st.column_config.NumberColumn(format="$%.2f")</code> so tables stay sortable as numbers. The DB schema is unchanged — <code>logger.py</code> keeps writing ISO-8601 UTC strings, and <code>filters.py</code> still converts ET-midnight bounds back to UTC for WHERE clauses. Presentation-layer only.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-04-16 — Paper-trading intraday engine moved into v0</div></div>
+        <div class="dec-why"><code>intraday_engine.py</code> ships as part of v0 but strictly as a <strong>paper</strong> engine: writes <code>intraday_signals</code> + <code>paper_positions</code> with a Kalshi taker fee model; never hits the Kalshi trade endpoint. Rationale: we need a real audit of what the model would have traded at observed prices, with a fee model, before deciding whether v0 has economically meaningful edge. The V1-B phase is re-scoped to its <strong>live-execution</strong> half only. Pre-registered v0 evaluation still uses <code>snapshot_type=&apos;morning&apos;</code> rows independent of paper P&amp;L.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-04-15 — PROVISIONAL paper-trade guardrails from 6-day review</div></div>
+        <div class="dec-why">First 71-position / 6-day paper sample landed net <strong>&minus;$45.70</strong>. Diagnostic: only dead-bracket SELL_YES at the 2&cent; floor was profitable (+$43.68); BUY_YES on cheap brackets was 0W/27L (&minus;$71.28) and non-dead SELL_YES on expensive brackets was &minus;$34.53. Root cause points at CDF tail width, not at market efficiency. Four <strong>PROVISIONAL</strong> guardrails shipped to <code>intraday_engine.py</code>: <code>BUY_YES_MIN_MARKET_PRICE = 0.40</code>, <code>DEAD_BRACKET_FLOOR = 0.04</code> (was 0.02), <code>SELL_YES_MAX_MARKET_PRICE = 0.55</code>, <code>MAX_DAILY_ENTRIES_PER_BRACKET = 1</code>. Blocked candidates still log to <code>intraday_signals</code> with <code>executed=0</code> so we retain counterfactual P&amp;L. These are guardrails against a known miscalibration, not permanent fixes — do not remove until the CDF rebuild ships and is evaluated on fresh settled rows. See <code>paper_trading_fixes.md</code>.</div>
+      </div>
+
+      <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-XX — Quint (5-knot) zone CDF promoted to primary model_prob path</div></div>
+        <div class="dec-why"><code>build_zones()</code> now uses the 5/7-knot piecewise CDF (p10 / p25 / p50 / p75 / p90 + mirror-reflected tails) as the default whenever NBP quartiles validate; the legacy 3-knot CDF remains a fallback and emits a stderr <code>WARNING</code> when it fires so silent regressions are visible. <code>model_prob_triplet_cdf</code> is logged alongside the primary value for A/B comparison (<code>quint_cdf_availability</code> canned query). Rationale: quartiles are the main additional information from NBP; promoting them avoids cherry-picking when to use them. Root-cause CDF-tail work remains open (see the PAPER phase task).</div>
+      </div>
 
       <div class="dec">
         <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-08 — Model inputs: no NBM-only restriction</div></div>
@@ -1174,6 +1322,13 @@ All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only 
         <div class="risk">
           <span class="rsev hi">H</span>
           <div class="risk-body">
+            <div class="risk-t">CDF tail shape is miscalibrated — observed in paper trading (2026-04-15)</div>
+            <div class="risk-m">First 6 paper-trading days show BUY_YES on cheap brackets is systematically wrong (0W/27L) and SELL_YES on expensive brackets is wrong 42% of the time. Working diagnosis: mirror-reflected tails (<code>L = 2·p10 − p25</code>, <code>U = 2·p90 − p75</code>) over-assign probability to far-from-center brackets. Mitigation: four PROVISIONAL guardrails in <code>intraday_engine.py</code> + counterfactual logging of blocked signals. <strong>Plan:</strong> (1) run <code>market_as_probability_brier</code> — a Layer-1 failure (market beats model as a probability) would mean calibration must be fixed <em>before</em> any mispricing claim; (2) A/B <code>model_prob</code> vs <code>model_prob_triplet_cdf</code> on settled rows; (3) prototype a parametric tail (skew-normal or <code>TXNSD</code>-driven). Do not remove guardrails until the rebuilt CDF is evaluated on fresh settled rows.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev hi">H</span>
+          <div class="risk-body">
             <div class="risk-t">No real edge exists -- most likely outcome</div>
             <div class="risk-m">Mitigation: v0 is explicitly designed to find this out cheaply. 20-30 days paper trading, no real money. Hard stop: if all four success criteria fail, default conclusion is no usable edge, not "needs more complexity."</div>
           </div>
@@ -1243,6 +1398,20 @@ All numeric thresholds are PROVISIONAL. Purpose: research and paper nudges only 
           <div class="risk-body">
             <div class="risk-t">Data pull failure causes a missed bet or a bet on stale data</div>
             <div class="risk-m">Mitigation: fail loudly, never silently. Morning model + collector run on cron with logs; Datasette and Telegram/Paul surface gaps. v0 still has no order execution here — alerts support paper discipline only until a later live tier.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">Paper engine writes vs dashboard reads race condition</div>
+            <div class="risk-m">Mitigation: dashboard opens SQLite via <code>file:...?mode=ro</code> URI so it can never write; <code>intraday_engine.py</code> + collector + logger are the only writers. Dashboard page loads run fresh queries (no caching) to avoid stale state after a cron tick. If we ever see locking issues under concurrent load, switch the DB to WAL journaling mode — not needed today.</div>
+          </div>
+        </div>
+        <div class="risk">
+          <span class="rsev md">M</span>
+          <div class="risk-body">
+            <div class="risk-t">Paper-engine guardrails are tuned on 6 days of data</div>
+            <div class="risk-m">The 40¢ / 55¢ / 4¢ / 1-entry thresholds were fit to a very small sample. They may over-gate on future regimes. Mitigation: all four are tagged <strong>PROVISIONAL</strong>; blocked signals still log to <code>intraday_signals</code> with <code>executed=0</code> so counterfactual performance is measurable. Revisit thresholds at the v0 gate with the full 20–30-day sample.</div>
           </div>
         </div>
         <div class="risk">
