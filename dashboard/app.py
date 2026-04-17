@@ -22,11 +22,11 @@ from queries import (
 )
 from sections import (
     dollars,
-    render_blocked_signals,
-    render_calibration,
+    # render_blocked_signals,
+    # render_calibration,
     render_equity_curve,
     render_fee_detail,
-    render_nbm_revisions,
+    # render_nbm_revisions,
     render_open_positions,
     render_signal_decomposition,
     render_signal_type_breakdown,
@@ -79,9 +79,9 @@ render_trade_log(trades)
 render_open_positions(conn)
 render_signal_decomposition(conn)
 render_signal_type_breakdown(conn)
-render_calibration(conn, start_utc, end_utc)
-render_nbm_revisions(conn, start_utc, end_utc)
-render_blocked_signals(conn, start_utc, end_utc)
+# render_calibration(conn, start_utc, end_utc)
+# render_nbm_revisions(conn, start_utc, end_utc)
+# render_blocked_signals(conn, start_utc, end_utc)
 render_fee_detail(conn)
 
 conn.close()
