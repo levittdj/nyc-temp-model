@@ -1084,6 +1084,11 @@ section { margin-bottom: 8px }
       <div class="sec">Methodology</div>
 
       <div class="dec">
+        <div class="dec-top"><span class="dtag mod">MOD</span><div class="dec-what">2026-04-17 — METAR ingest bug: use NOAA <code>obsTime</code> instead of <code>reportTime</code></div></div>
+        <div class="dec-why"><code>collector._fetch_metar_observations</code> trusted the NOAA Aviation Weather <code>reportTime</code> field, which rounds to the top of the hour rather than preserving the true <code>:51</code> filing time. <strong>Symptom:</strong> observations from the previous NHIGH window bled into the current window, triggering false truncation signals early in the morning. Today's NO-&lt;77 trade at 82&cent; × 50 contracts opened on this bad data; expected loss at settlement ~$41. <strong>Fix:</strong> use <code>obsTime</code> (Unix epoch) as the canonical observation timestamp with <code>reportTime</code>/<code>receiptTime</code> fallback only. Prior rows <strong>not</strong> backfilled; rounded timestamps in <code>metar_observations</code> before fix deploy remain as-is. No schema change; <code>running_observed_max_f</code>, <code>_nhigh_metar_window_utc</code>, and truncation logic were verified correct and were not touched.</div>
+      </div>
+
+      <div class="dec">
         <div class="dec-top"><span class="dtag add">ADD</span><div class="dec-what">2026-04-16 — Streamlit paper-trade review dashboard on :8501</div></div>
         <div class="dec-why">Introduced <code>dashboard/</code> as a <strong>read-only</strong> Streamlit app so paper P&amp;L, calibration, NBM revisions, blocked signals, and per-event drill-downs live in one place rather than being rebuilt as ad-hoc Datasette queries each morning. Strict separation: DB opened via <code>file:...?mode=ro</code> URI; all SQL in <code>dashboard/queries.py</code>; all display in <code>dashboard/sections/</code>; no caching, no counterfactual P&amp;L. Datasette remains the general-purpose browser. Launched via <code>dashboard.sh</code> on VM port 8501 with logs to <code>logs/dashboard.log</code>.</div>
       </div>
