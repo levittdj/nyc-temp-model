@@ -11,8 +11,8 @@ from pathlib import Path
 
 import streamlit as st
 
-from dashboard.db import get_ro_connection
-from dashboard.queries import latest_snapshot_ts
+from db import get_ro_connection
+from queries import latest_snapshot_ts
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "nyc_temp_log.sqlite"
 DB_PATH = Path(os.environ.get("NYC_TEMP_DB", str(_DEFAULT_DB)))
