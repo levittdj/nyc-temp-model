@@ -337,10 +337,17 @@ def _fetch_metar_observations(
 
     out: list[dict[str, Any]] = []
     for rec in records:
-        report_time = rec.get("reportTime") or rec.get("receiptTime")
-        if not report_time:
-            continue
-        obs_ts = datetime.fromisoformat(report_time.replace("Z", "+00:00")).astimezone(timezone.utc)
+        # NOAA returns `obsTime` (Unix epoch; the minute-accurate METAR filing time, e.g. :51)
+        # and `reportTime` (rounded to the top of the hour). Prefer obsTime; fall back to the
+        # string fields only when it is missing. See bug 2026-04-17 (Decisions Log).
+        obs_epoch = rec.get("obsTime")
+        if isinstance(obs_epoch, (int, float)):
+            obs_ts = datetime.fromtimestamp(int(obs_epoch), tz=timezone.utc)
+        else:
+            report_time = rec.get("reportTime") or rec.get("receiptTime")
+            if not report_time:
+                continue
+            obs_ts = datetime.fromisoformat(report_time.replace("Z", "+00:00")).astimezone(timezone.utc)
         if obs_ts < sts_utc or obs_ts > ets_utc:
             continue
         temp_c = rec.get("temp")
