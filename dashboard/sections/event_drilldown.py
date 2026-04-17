@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from charts import apply_dark_template
 from queries import (
     bracket_price_trajectory,
     dsm_running_high,
@@ -12,6 +13,7 @@ from queries import (
     event_day_signals,
     event_day_summary,
 )
+from style import section_header
 
 from ._format import ET, dollars, to_et
 
@@ -92,6 +94,7 @@ def _render_price_chart(conn, event_date: str) -> None:
         yaxis2=dict(title="running high (F)", overlaying="y", side="right"),
         legend=dict(orientation="h", y=-0.25),
     )
+    apply_dark_template(fig)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -131,9 +134,9 @@ def _render_positions_table(conn, event_date: str) -> None:
 
 
 def render_event_drilldown(conn, event_date: str) -> None:
-    st.header(f"Event {event_date}")
+    section_header("EVENT DETAIL", f"Event {event_date}")
     _render_header(conn, event_date)
-    st.subheader("Market / model prices with DSM running high")
+    section_header("PRICES", "Market / model prices with DSM running high")
     _render_price_chart(conn, event_date)
     _render_signals_table(conn, event_date)
     _render_positions_table(conn, event_date)

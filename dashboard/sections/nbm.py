@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from queries import nbm_revisions_in_range
+from style import section_header
 
 from ._format import to_et
 
@@ -15,7 +16,7 @@ NBM_REVISION_FLAG_F: float = 2.0
 
 
 def render_nbm_revisions(conn, start_utc: str, end_utc: str) -> None:
-    st.subheader("NBM revisions")
+    section_header("REVISIONS", "NBM revisions")
     df = nbm_revisions_in_range(conn, start_utc, end_utc)
     if df.empty:
         st.info("No morning NBM snapshots in this range.")

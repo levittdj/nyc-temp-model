@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from queries import open_positions_with_unrealized
+from style import section_header
 
 from ._format import ET, dollars, to_et
 
@@ -13,7 +14,7 @@ _USD = st.column_config.NumberColumn(format="$%.2f")
 
 
 def render_equity_curve(closed: pd.DataFrame) -> None:
-    st.subheader("Equity curve")
+    section_header("OVERVIEW", "Equity curve")
     if closed.empty:
         st.info("No closed trades in this range.")
         return
@@ -36,7 +37,7 @@ def render_equity_curve(closed: pd.DataFrame) -> None:
 
 
 def render_trade_log(trades: pd.DataFrame) -> None:
-    st.subheader("Trade log")
+    section_header("TRADES", "Trade log")
     if trades.empty:
         st.info("No trades in this range.")
         return
@@ -68,7 +69,7 @@ def render_trade_log(trades: pd.DataFrame) -> None:
 
 
 def render_open_positions(conn) -> None:
-    st.subheader("Open positions")
+    section_header("POSITIONS", "Open positions")
     op = open_positions_with_unrealized(conn)
     if op.empty:
         st.info("No open positions.")

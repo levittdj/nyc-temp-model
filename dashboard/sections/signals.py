@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from queries import fee_details, signal_decomposition, signal_type_breakdown
+from style import section_header
 
 from ._format import dollars
 
@@ -13,7 +14,7 @@ _USD = st.column_config.NumberColumn(format="$%.2f")
 
 
 def render_signal_decomposition(conn) -> None:
-    st.subheader("Signal decomposition")
+    section_header("SIGNALS", "Signal decomposition")
     df = signal_decomposition(conn)
     if df.empty:
         st.info("No closed positions with signal-source joins yet.")
@@ -40,7 +41,7 @@ def render_signal_decomposition(conn) -> None:
 
 
 def render_signal_type_breakdown(conn) -> None:
-    st.subheader("Signal type breakdown")
+    section_header("SIGNALS", "Signal type breakdown")
     df = signal_type_breakdown(conn)
     if df.empty:
         st.info("No closed positions with signal_type yet.")

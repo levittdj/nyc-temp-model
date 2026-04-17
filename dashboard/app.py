@@ -33,11 +33,13 @@ from sections import (
     render_trade_log,
 )
 from sections._format import to_et
+from style import inject_global_css
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "nyc_temp_log.sqlite"
 DB_PATH = Path(os.environ.get("NYC_TEMP_DB", str(_DEFAULT_DB)))
 
 st.set_page_config(page_title="NYC Temp Paper Trading", layout="wide")
+inject_global_css()
 st.title("NYC Temp Paper Trading \u2014 v0 review")
 
 if not DB_PATH.exists():

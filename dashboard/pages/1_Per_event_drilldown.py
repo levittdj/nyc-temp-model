@@ -15,11 +15,13 @@ import streamlit as st
 from db import get_ro_connection
 from queries import event_dates_with_paper_positions
 from sections import render_event_drilldown
+from style import inject_global_css
 
 _DEFAULT_DB = Path(__file__).resolve().parents[2] / "nyc_temp_log.sqlite"
 DB_PATH = Path(os.environ.get("NYC_TEMP_DB", str(_DEFAULT_DB)))
 
 st.set_page_config(page_title="Per-event drill-down", layout="wide")
+inject_global_css()
 st.title("Per-event drill-down")
 
 if not DB_PATH.exists():

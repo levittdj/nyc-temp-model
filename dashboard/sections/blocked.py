@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from queries import blocked_signals_by_reason, blocked_signals_recent
+from style import section_header
 
 from ._format import to_et
 
@@ -13,7 +14,7 @@ _USD = st.column_config.NumberColumn(format="$%.2f")
 
 
 def render_blocked_signals(conn, start_utc: str, end_utc: str) -> None:
-    st.subheader("Blocked signals")
+    section_header("BLOCKED", "Blocked signals")
     by_reason = blocked_signals_by_reason(conn, start_utc, end_utc)
     recent = blocked_signals_recent(conn, start_utc, end_utc, limit=20)
 
