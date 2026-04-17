@@ -2,6 +2,7 @@
 set -euo pipefail
 cd ~/nyc-temp-model
 source .venv/bin/activate
+export PYTHONPATH="$HOME/nyc-temp-model:${PYTHONPATH:-}"
 streamlit run dashboard/app.py \
   --server.port 8501 \
   --server.address 0.0.0.0 \
