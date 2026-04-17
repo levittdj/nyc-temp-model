@@ -5,7 +5,7 @@ Each render_* function writes directly to `st` and returns None.
 All SQL lives in dashboard/queries.py (single source of truth).
 """
 
-from ._format import cents, to_et
+from ._format import dollars, to_et
 from .blocked import render_blocked_signals
 from .calibration import render_calibration
 from .event_drilldown import render_event_drilldown
@@ -22,7 +22,7 @@ from .trades import (
 )
 
 __all__ = [
-    "cents",
+    "dollars",
     "to_et",
     "render_blocked_signals",
     "render_calibration",

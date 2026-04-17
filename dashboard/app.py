@@ -21,7 +21,7 @@ from queries import (
     trades_in_range,
 )
 from sections import (
-    cents,
+    dollars,
     render_blocked_signals,
     render_calibration,
     render_equity_curve,
@@ -32,6 +32,7 @@ from sections import (
     render_signal_type_breakdown,
     render_trade_log,
 )
+from sections._format import to_et
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "nyc_temp_log.sqlite"
 DB_PATH = Path(os.environ.get("NYC_TEMP_DB", str(_DEFAULT_DB)))
@@ -44,7 +45,8 @@ if not DB_PATH.exists():
     st.stop()
 
 conn = get_ro_connection(DB_PATH)
-snap_ts = latest_snapshot_ts(conn) or "\u2014"
+_raw_ts = latest_snapshot_ts(conn)
+snap_ts = f"{to_et(_raw_ts)} ET" if _raw_ts else "\u2014"
 st.caption(f"Latest snapshot: {snap_ts}  \u00b7  DB: `{DB_PATH.name}`")
 
 tf = render_timeframe_filter()
@@ -66,11 +68,11 @@ win_rate = float((closed["pnl_net"] > 0).mean()) if n_closed else 0.0
 fee_drag_pct = fee_sum / max(abs(pnl_gross_sum), 0.01) * 100.0
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric(f"Period Net P&L ({tf['label']})", cents(pnl_net_sum))
+k1.metric(f"Period Net P&L ({tf['label']})", dollars(pnl_net_sum))
 k2.metric("Win rate", f"{win_rate * 100:.1f}%")
 k3.metric("Trades closed", n_closed)
 k4.metric("Fee drag", f"{fee_drag_pct:.1f}%")
-k5.metric("All-time Net P&L", cents(cum_all))
+k5.metric("All-time Net P&L", dollars(cum_all))
 
 render_equity_curve(closed)
 render_trade_log(trades)

@@ -13,7 +13,9 @@ from queries import (
     event_day_summary,
 )
 
-from ._format import cents, to_et
+from ._format import ET, dollars, to_et
+
+_USD = st.column_config.NumberColumn(format="$%.2f")
 
 
 def _render_header(conn, event_date: str) -> None:
@@ -29,7 +31,7 @@ def _render_header(conn, event_date: str) -> None:
                   delta=f"{delta:+.1f}F")
     else:
         c3.metric("NBM p50: morning \u2192 final", "\u2014")
-    c4.metric("Day Net P&L", cents(s["pnl_net"]))
+    c4.metric("Day Net P&L", dollars(s["pnl_net"]))
 
 
 def _render_price_chart(conn, event_date: str) -> None:
@@ -49,19 +51,22 @@ def _render_price_chart(conn, event_date: str) -> None:
     palette = qualitative.Plotly
     brackets = sorted(traj["bracket_label"].unique())
     traj = traj.copy()
-    traj["snapshot_dt"] = pd.to_datetime(traj["snapshot_ts"], utc=True, errors="coerce")
+    traj["snapshot_dt"] = (
+        pd.to_datetime(traj["snapshot_ts"], utc=True, errors="coerce")
+        .dt.tz_convert(ET)
+    )
 
     fig = go.Figure()
     for i, lbl in enumerate(brackets):
         color = palette[i % len(palette)]
         sub = traj[traj["bracket_label"] == lbl].sort_values("snapshot_dt")
         fig.add_trace(go.Scatter(
-            x=sub["snapshot_dt"], y=sub["market_price"] * 100,
+            x=sub["snapshot_dt"], y=sub["market_price"],
             mode="lines", name=f"{lbl} mkt", line=dict(color=color, width=2),
             legendgroup=lbl,
         ))
         fig.add_trace(go.Scatter(
-            x=sub["snapshot_dt"], y=sub["model_prob"] * 100,
+            x=sub["snapshot_dt"], y=sub["model_prob"],
             mode="lines", name=f"{lbl} model",
             line=dict(color=color, width=1.5, dash="dash"),
             legendgroup=lbl, showlegend=True,
@@ -69,7 +74,10 @@ def _render_price_chart(conn, event_date: str) -> None:
 
     if not dsm.empty:
         dsm = dsm.copy()
-        dsm["fetch_dt"] = pd.to_datetime(dsm["fetch_ts"], utc=True, errors="coerce")
+        dsm["fetch_dt"] = (
+            pd.to_datetime(dsm["fetch_ts"], utc=True, errors="coerce")
+            .dt.tz_convert(ET)
+        )
         fig.add_trace(go.Scatter(
             x=dsm["fetch_dt"], y=dsm["running_high_f"],
             mode="lines+markers", name="DSM running high (F)",
@@ -79,8 +87,8 @@ def _render_price_chart(conn, event_date: str) -> None:
     fig.update_layout(
         height=520,
         margin=dict(l=10, r=10, t=30, b=10),
-        xaxis_title="snapshot_ts (UTC)",
-        yaxis=dict(title="price / model prob (\u00a2 or %)", range=[0, 100]),
+        xaxis_title="snapshot (ET)",
+        yaxis=dict(title="price / model prob ($)", range=[0, 1], tickformat="$.2f"),
         yaxis2=dict(title="running high (F)", overlaying="y", side="right"),
         legend=dict(orientation="h", y=-0.25),
     )
@@ -110,13 +118,16 @@ def _render_positions_table(conn, event_date: str) -> None:
         return
     r = df.copy()
     r["entry (ET)"] = r["entry_ts"].map(to_et)
-    r["entry \u00a2"] = (r["avg_entry_price"].astype(float) * 100).round(1)
-    r["exit \u00a2"] = (pd.to_numeric(r["exit_price"], errors="coerce") * 100).round(1)
-    r["net \u00a2"] = (r["pnl_net"].fillna(0).astype(float) * 100).round(1)
+    r["entry $"] = r["avg_entry_price"].astype(float)
+    r["exit $"] = pd.to_numeric(r["exit_price"], errors="coerce")
+    r["net $"] = r["pnl_net"].fillna(0).astype(float)
     cols = ["bracket_label", "side", "contracts", "entry (ET)",
-            "entry \u00a2", "exit \u00a2", "status", "net \u00a2"]
-    st.dataframe(r[cols].rename(columns={"bracket_label": "bracket"}),
-                 use_container_width=True, hide_index=True)
+            "entry $", "exit $", "status", "net $"]
+    st.dataframe(
+        r[cols].rename(columns={"bracket_label": "bracket"}),
+        use_container_width=True, hide_index=True,
+        column_config={"entry $": _USD, "exit $": _USD, "net $": _USD},
+    )
 
 
 def render_event_drilldown(conn, event_date: str) -> None:

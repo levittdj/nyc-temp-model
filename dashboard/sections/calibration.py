@@ -14,10 +14,9 @@ def render_calibration(conn, start_utc: str, end_utc: str) -> None:
         st.info("No closed positions with edge-at-entry in this range.")
         return
 
-    # Percent / cents for readability on the axes.
     plot_df = df.copy()
     plot_df["edge_at_entry_pct"] = plot_df["edge_at_entry"].astype(float) * 100.0
-    plot_df["pnl_per_contract_cents"] = plot_df["pnl_per_contract"].astype(float) * 100.0
+    plot_df["pnl_per_contract_$"] = plot_df["pnl_per_contract"].astype(float)
     plot_df["signal_type"] = plot_df["signal_type"].fillna("(none)")
 
     try:
@@ -26,7 +25,7 @@ def render_calibration(conn, start_utc: str, end_utc: str) -> None:
         fig = px.scatter(
             plot_df,
             x="edge_at_entry_pct",
-            y="pnl_per_contract_cents",
+            y="pnl_per_contract_$",
             color="signal_type",
             color_discrete_map={"BUY_YES": "#1f77b4", "SELL_YES": "#d62728"},
             trendline="lowess",
@@ -34,11 +33,12 @@ def render_calibration(conn, start_utc: str, end_utc: str) -> None:
             hover_data=["pnl_net", "contracts"],
             labels={
                 "edge_at_entry_pct": "Edge at entry (%)",
-                "pnl_per_contract_cents": "P&L per contract (\u00a2)",
+                "pnl_per_contract_$": "P&L per contract ($)",
                 "signal_type": "Signal type",
             },
         )
         fig.add_hline(y=0, line_dash="dot", line_color="gray")
+        fig.update_yaxes(tickformat="$.2f")
         fig.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10))
         st.plotly_chart(fig, use_container_width=True)
     except Exception as exc:  # plotly or statsmodels missing

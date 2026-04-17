@@ -9,6 +9,8 @@ from queries import blocked_signals_by_reason, blocked_signals_recent
 
 from ._format import to_et
 
+_USD = st.column_config.NumberColumn(format="$%.2f")
+
 
 def render_blocked_signals(conn, start_utc: str, end_utc: str) -> None:
     st.subheader("Blocked signals")
@@ -35,11 +37,14 @@ def render_blocked_signals(conn, start_utc: str, end_utc: str) -> None:
         r["snapshot (ET)"] = r["snapshot_ts"].map(to_et)
         r["edge %"] = (pd.to_numeric(r["edge"], errors="coerce") * 100).round(1)
         r["model %"] = (pd.to_numeric(r["model_prob"], errors="coerce") * 100).round(1)
-        r["market \u00a2"] = (pd.to_numeric(r["market_price"], errors="coerce") * 100).round(1)
+        r["market $"] = pd.to_numeric(r["market_price"], errors="coerce")
         cols = ["snapshot (ET)", "bracket_label", "signal_type", "reason",
-                "edge %", "model %", "market \u00a2"]
-        st.dataframe(r[cols].rename(columns={"bracket_label": "bracket"}),
-                     use_container_width=True, hide_index=True)
+                "edge %", "model %", "market $"]
+        st.dataframe(
+            r[cols].rename(columns={"bracket_label": "bracket"}),
+            use_container_width=True, hide_index=True,
+            column_config={"market $": _USD},
+        )
     st.caption(
         "No counterfactual P&L here \u2014 block-reasoning only.  "
         "`reason` strings come straight from intraday_engine.py signal gating."

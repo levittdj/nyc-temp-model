@@ -7,7 +7,9 @@ import streamlit as st
 
 from queries import open_positions_with_unrealized
 
-from ._format import cents, to_et
+from ._format import ET, dollars, to_et
+
+_USD = st.column_config.NumberColumn(format="$%.2f")
 
 
 def render_equity_curve(closed: pd.DataFrame) -> None:
@@ -19,11 +21,17 @@ def render_equity_curve(closed: pd.DataFrame) -> None:
     curve["anchor"] = curve["exit_ts"].where(
         curve["exit_ts"].notna() & (curve["exit_ts"] != ""), curve["entry_ts"]
     )
-    curve["anchor_dt"] = pd.to_datetime(curve["anchor"], utc=True, errors="coerce")
+    curve["anchor_dt"] = (
+        pd.to_datetime(curve["anchor"], utc=True, errors="coerce")
+        .dt.tz_convert(ET)
+    )
     curve = curve.sort_values("anchor_dt").reset_index(drop=True)
-    curve["cum_net_cents"] = curve["pnl_net"].fillna(0).cumsum() * 100.0
+    curve["Cumulative Net P&L ($)"] = curve["pnl_net"].fillna(0).cumsum()
     st.line_chart(
-        curve.set_index("anchor_dt")[["cum_net_cents"]], use_container_width=True
+        curve.set_index("anchor_dt")[["Cumulative Net P&L ($)"]],
+        use_container_width=True,
+        x_label="Time (ET)",
+        y_label="Net P&L ($)",
     )
 
 
@@ -34,14 +42,14 @@ def render_trade_log(trades: pd.DataFrame) -> None:
         return
     t = trades.copy()
     t["entry (ET)"] = t["entry_ts"].map(to_et)
-    t["entry \u00a2"] = (t["avg_entry_price"].astype(float) * 100).round(1)
-    t["exit \u00a2"] = (t["exit_price"].astype(float) * 100).round(1)
-    t["gross \u00a2"] = (t["pnl_gross"].fillna(0).astype(float) * 100).round(1)
-    t["net \u00a2"] = (t["pnl_net"].fillna(0).astype(float) * 100).round(1)
+    t["entry $"] = t["avg_entry_price"].astype(float)
+    t["exit $"] = pd.to_numeric(t["exit_price"], errors="coerce")
+    t["gross $"] = t["pnl_gross"].fillna(0).astype(float)
+    t["net $"] = t["pnl_net"].fillna(0).astype(float)
     cols = [
         "event_date", "bracket_label", "side", "contracts",
-        "entry (ET)", "entry \u00a2", "exit \u00a2",
-        "settlement_outcome", "status", "gross \u00a2", "net \u00a2",
+        "entry (ET)", "entry $", "exit $",
+        "settlement_outcome", "status", "gross $", "net $",
         "signal_reason",
     ]
     show = t[cols].rename(columns={
@@ -49,7 +57,14 @@ def render_trade_log(trades: pd.DataFrame) -> None:
         "settlement_outcome": "settled",
         "signal_reason": "reason",
     })
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    st.dataframe(
+        show,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "entry $": _USD, "exit $": _USD, "gross $": _USD, "net $": _USD,
+        },
+    )
 
 
 def render_open_positions(conn) -> None:
@@ -59,16 +74,23 @@ def render_open_positions(conn) -> None:
         st.info("No open positions.")
         return
     total_unrealized = float(op["unrealized_pnl"].fillna(0).sum())
-    st.metric("Total unrealized P&L", cents(total_unrealized))
+    st.metric("Total unrealized P&L", dollars(total_unrealized))
     display = pd.DataFrame({
         "event_date": op["event_date"],
         "bracket": op["bracket_label"],
         "side": op["side"],
         "contracts": op["contracts"],
-        "entry \u00a2": (op["avg_entry_price"].astype(float) * 100).round(1),
-        "current \u00a2": (pd.to_numeric(op["current_mkt"], errors="coerce") * 100).round(1),
-        "unrealized \u00a2": (op["unrealized_pnl"].astype(float) * 100).round(1),
+        "entry $": op["avg_entry_price"].astype(float),
+        "current $": pd.to_numeric(op["current_mkt"], errors="coerce"),
+        "unrealized $": op["unrealized_pnl"].astype(float),
         "hrs to settle": pd.to_numeric(op["hours_to_settle"], errors="coerce").round(1),
         "reason": op["signal_reason"],
     })
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    st.dataframe(
+        display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "entry $": _USD, "current $": _USD, "unrealized $": _USD,
+        },
+    )
