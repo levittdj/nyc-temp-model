@@ -112,12 +112,16 @@ def main() -> int:
             price_c = int(round(float(price_target or 0) * 100)) if price_target else 0
             edge_pct = f"{float(edge or 0)*100:+.1f}%" if edge is not None else "?"
             kelly_s = f"K={float(kelly_full or 0)*100:.0f}%" if kelly_full is not None else ""
+            n = int(contracts or 0)
+            cost_c = n * price_c
+            payout_c = n * 100
             lines.append(
                 f"  {stype} {label} ({side_str})"
-                f"  {contracts or 0}c @ {price_c}¢"
+                f"  {n}c @ {price_c}¢"
                 f"  edge {edge_pct}"
                 f"  {kelly_s}"
             )
+            lines.append(f"    bet {cost_c}¢  payout {payout_c}¢  profit if correct {payout_c - cost_c}¢")
             if reason:
                 lines.append(f"    → {reason}")
 

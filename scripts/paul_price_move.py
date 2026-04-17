@@ -118,5 +118,50 @@ for _, event_date, label, old_p, new_p, move, model_prob, edge in alerts:
             note = 'Market moving away from model. Edge now ' + ('+' if edge>0 else '') + str(edge_pct) + '%. Worth watching.'
         lines.append('  ' + note)
 
+# Open positions summary with unrealized P&L at current prices
+try:
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    if 'paper_positions' in tables:
+        open_pos = conn.execute('''
+            SELECT event_date, bracket_label, side, contracts, avg_entry_price
+            FROM paper_positions
+            WHERE status = 'open'
+            ORDER BY event_date, bracket_label
+        ''').fetchall()
+        if open_pos:
+            lines.append('')
+            lines.append('Open positions (unrealized P&L at current prices):')
+            total_unrealized = 0.0
+            for ev_date, bl, side, n_c, aep in open_pos:
+                # Look up current market price from latest snapshot
+                cur = conn.execute('''
+                    SELECT market_price FROM bracket_snapshots
+                    WHERE event_date=? AND bracket_label=?
+                      AND COALESCE(series_ticker,'KXHIGHNY')='KXHIGHNY'
+                    ORDER BY snapshot_ts DESC LIMIT 1
+                ''', (ev_date, bl)).fetchone()
+                if cur and cur[0] is not None:
+                    mkt = float(cur[0])
+                    if side == 'YES':
+                        unrealized = n_c * (mkt - float(aep))
+                    else:
+                        unrealized = n_c * ((1.0 - mkt) - float(aep))
+                    total_unrealized += unrealized
+                    sign = '+' if unrealized >= 0 else ''
+                    mkt_c = int(round(mkt * 100))
+                    aep_c = int(round(float(aep) * 100))
+                    lines.append(
+                        f'  {ev_date} {bl} {side}  {n_c}c  entry {aep_c}¢  now {mkt_c}¢'
+                        f'  unrealized {sign}{round(unrealized * 100, 1)}¢'
+                    )
+                else:
+                    lines.append(f'  {ev_date} {bl} {side}  {n_c}c  entry {int(round(float(aep)*100))}¢  (no current price)')
+            sign = '+' if total_unrealized >= 0 else ''
+            lines.append(f'  Total unrealized: {sign}{round(total_unrealized * 100, 1)}¢')
+except Exception:
+    pass
+
 requests.post('https://api.telegram.org/bot' + BOT_TOKEN + '/sendMessage',
     json={'chat_id': CHAT_ID, 'text': '\n'.join(lines)})
