@@ -391,6 +391,13 @@ def _rows_for_event(
     p10b, p50b, p90b = pct_f_raw[0] + nbm_bias, pct_f_raw[1] + nbm_bias, pct_f_raw[2] + nbm_bias
     p25b = p25f + nbm_bias if p25f is not None else None
     p75b = p75f + nbm_bias if p75f is not None else None
+    if p25b is None or p75b is None:
+        import sys
+        print(
+            f"[collector] WARNING: p25/p75 not available for {event_date}, "
+            f"falling back to 3-knot CDF. Check NBP bulletin for TXNP2/TXNP7.",
+            file=sys.stderr,
+        )
     z = adjusted_zone if adjusted_zone is not None else build_zones(p10b, p50b, p90b, p25b, p75b)
     # z_triplet is always built from raw biased percentiles — ensemble width does not touch it.
     z_triplet = build_zones(p10b, p50b, p90b) if (p25b is not None and p75b is not None) else None

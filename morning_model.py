@@ -80,7 +80,7 @@ class BracketRow:
     edge: float
     market_bid: Optional[float] = None
     market_ask: Optional[float] = None
-    model_prob_triplet_cdf: Optional[float] = None
+    model_prob_triplet_cdf: Optional[float] = None  # legacy 3-knot CDF prob; A/B comparison vs primary 5-knot model_prob. NULL when p25/p75 unavailable (both CDFs identical).
 
 
 def load_config(path: Path) -> float:
@@ -743,6 +743,12 @@ def run_model(
     p10, p50, p90 = apply_nbm_bias(pct_f_raw[0], pct_f_raw[1], pct_f_raw[2], nbm_bias)
     p25a = nbm_p25_raw + nbm_bias if nbm_p25_raw is not None else None
     p75a = nbm_p75_raw + nbm_bias if nbm_p75_raw is not None else None
+    if p25a is None or p75a is None:
+        print(
+            f"[morning_model] WARNING: p25/p75 not available for {target}, "
+            f"falling back to 3-knot CDF. Check NBP bulletin for TXNP2/TXNP7.",
+            file=sys.stderr,
+        )
     z = build_zones(p10, p50, p90, p25a, p75a)
     z_triplet = (
         build_zones(p10, p50, p90) if (p25a is not None and p75a is not None) else None

@@ -340,6 +340,51 @@ databases:
         GROUP BY snapshot_type
         ORDER BY snapshot_type
 
+      brier_by_bracket_position: |-
+        SELECT
+          CASE
+            WHEN bracket_lower_f IS NULL THEN 'low tail'
+            WHEN bracket_upper_f IS NULL THEN 'high tail'
+            WHEN market_price >= 0.40 THEN 'favorite (>=40c)'
+            WHEN market_price <= 0.10 THEN 'longshot (<=10c)'
+            ELSE 'middle (10c-40c)'
+          END AS position,
+          COUNT(*) AS n,
+          ROUND(AVG((model_prob - outcome) * (model_prob - outcome)), 6) AS model_brier,
+          ROUND(AVG((market_price - outcome) * (market_price - outcome)), 6) AS market_brier,
+          ROUND(
+            AVG((model_prob - outcome) * (model_prob - outcome)) -
+            AVG((market_price - outcome) * (market_price - outcome)),
+            6
+          ) AS model_excess,
+          ROUND(AVG(model_prob), 4) AS avg_model_prob,
+          ROUND(AVG(market_price), 4) AS avg_market_price,
+          ROUND(AVG(CASE WHEN outcome = 1 THEN 1.0 ELSE 0.0 END), 4) AS actual_win_rate
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+          AND outcome IS NOT NULL
+        GROUP BY position
+        ORDER BY model_excess DESC
+
+      quint_cdf_availability: |-
+        SELECT
+          event_date,
+          snapshot_type,
+          COUNT(*) AS n_brackets,
+          SUM(CASE WHEN model_prob_triplet_cdf IS NOT NULL THEN 1 ELSE 0 END) AS has_triplet_comparison,
+          MAX(nbm_p25_raw) AS p25,
+          MAX(nbm_p75_raw) AS p75,
+          MAX(nbm_sd_raw) AS sd,
+          CASE
+            WHEN MAX(nbm_p25_raw) IS NOT NULL AND MAX(nbm_p75_raw) IS NOT NULL
+            THEN 'quint'
+            ELSE 'triplet (fallback)'
+          END AS cdf_type
+        FROM bracket_snapshots
+        WHERE snapshot_type = 'morning'
+        GROUP BY event_date, snapshot_type
+        ORDER BY event_date DESC
+
       edge_by_city: |-
         SELECT
           COALESCE(series_ticker, 'KXHIGHNY') AS series_ticker,

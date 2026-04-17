@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS bracket_snapshots (
     bracket_upper_f REAL,
 
     model_prob REAL,
-    model_prob_triplet_cdf REAL,
+    model_prob_triplet_cdf REAL,  -- legacy 3-knot CDF prob; A/B comparison vs primary 5-knot model_prob. NULL when p25/p75 unavailable (both CDFs identical).
     market_price REAL,
     market_bid REAL,
     market_ask REAL,
