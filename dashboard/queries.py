@@ -171,6 +171,216 @@ def signal_type_breakdown(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query(sql, conn)
 
 
+def event_dates_with_paper_positions(conn: sqlite3.Connection) -> list:
+    """Distinct event_dates that have at least one paper_position row (any status)."""
+    rows = conn.execute(
+        "SELECT DISTINCT event_date FROM paper_positions ORDER BY event_date DESC"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def event_day_summary(conn: sqlite3.Connection, event_date: str) -> dict:
+    """Header summary for the per-event drilldown: actual high, winning bracket, p50 shift, day P&L."""
+    actual_row = conn.execute(
+        "SELECT MAX(actual_max_f) FROM bracket_snapshots WHERE event_date=?",
+        (event_date,),
+    ).fetchone()
+    winning_row = conn.execute(
+        "SELECT bracket_label FROM bracket_snapshots WHERE event_date=? AND outcome=1 LIMIT 1",
+        (event_date,),
+    ).fetchone()
+    morning_row = conn.execute(
+        """
+        SELECT nbm_p50_adj FROM bracket_snapshots
+        WHERE event_date=? AND snapshot_type='morning' AND nbm_p50_adj IS NOT NULL
+        ORDER BY snapshot_ts LIMIT 1
+        """,
+        (event_date,),
+    ).fetchone()
+    final_row = conn.execute(
+        """
+        SELECT nbm_p50_adj FROM bracket_snapshots
+        WHERE event_date=? AND snapshot_type='intraday' AND nbm_p50_adj IS NOT NULL
+        ORDER BY snapshot_ts DESC LIMIT 1
+        """,
+        (event_date,),
+    ).fetchone()
+    pnl_row = conn.execute(
+        """
+        SELECT COALESCE(SUM(pnl_net), 0) FROM paper_positions
+        WHERE event_date=? AND status IN ('exited','settled')
+        """,
+        (event_date,),
+    ).fetchone()
+    return {
+        "actual_max_f": actual_row[0] if actual_row and actual_row[0] is not None else None,
+        "winning_bracket": winning_row[0] if winning_row else None,
+        "morning_p50": morning_row[0] if morning_row and morning_row[0] is not None else None,
+        "final_p50": final_row[0] if final_row and final_row[0] is not None else None,
+        "pnl_net": float(pnl_row[0]) if pnl_row and pnl_row[0] is not None else 0.0,
+    }
+
+
+def bracket_price_trajectory(
+    conn: sqlite3.Connection, event_date: str
+) -> pd.DataFrame:
+    """Per-bracket intraday price + model_prob timeline for one event_date (KXHIGHNY only)."""
+    sql = """
+        SELECT snapshot_ts, bracket_label, market_price, model_prob
+        FROM bracket_snapshots
+        WHERE event_date = ?
+          AND snapshot_type = 'intraday'
+          AND COALESCE(series_ticker, 'KXHIGHNY') = 'KXHIGHNY'
+        ORDER BY snapshot_ts, bracket_label
+    """
+    return pd.read_sql_query(sql, conn, params=(event_date,))
+
+
+def dsm_running_high(conn: sqlite3.Connection, event_date: str) -> pd.DataFrame:
+    """Running observed-high track from DSM observations, for overlay on the drilldown chart."""
+    sql = """
+        SELECT fetch_ts, running_high_f
+        FROM dsm_observations
+        WHERE event_date = ?
+        ORDER BY fetch_ts
+    """
+    return pd.read_sql_query(sql, conn, params=(event_date,))
+
+
+def event_day_signals(conn: sqlite3.Connection, event_date: str) -> pd.DataFrame:
+    """All intraday_signals (executed AND blocked) for one event_date."""
+    sql = """
+        SELECT snapshot_ts, bracket_label, signal_type, executed,
+               reason, contracts_suggested, edge
+        FROM intraday_signals
+        WHERE event_date = ?
+        ORDER BY snapshot_ts
+    """
+    return pd.read_sql_query(sql, conn, params=(event_date,))
+
+
+def event_day_positions(conn: sqlite3.Connection, event_date: str) -> pd.DataFrame:
+    """All paper_positions for one event_date."""
+    sql = """
+        SELECT bracket_label, side, contracts, entry_ts,
+               avg_entry_price, exit_price, status, pnl_net
+        FROM paper_positions
+        WHERE event_date = ?
+        ORDER BY entry_ts
+    """
+    return pd.read_sql_query(sql, conn, params=(event_date,))
+
+
+def calibration_data(
+    conn: sqlite3.Connection, start_utc: str, end_utc: str
+) -> pd.DataFrame:
+    """Edge-at-entry vs pnl_net-per-contract for every closed position in range."""
+    sql = """
+        SELECT p.pnl_net, p.contracts,
+               s.edge AS edge_at_entry,
+               s.signal_type
+        FROM paper_positions p
+        JOIN intraday_signals s ON s.signal_id = p.entry_signal_id
+        WHERE p.status IN ('exited', 'settled')
+          AND p.entry_ts >= ? AND p.entry_ts < ?
+          AND s.edge IS NOT NULL
+          AND p.contracts > 0
+    """
+    df = pd.read_sql_query(sql, conn, params=(start_utc, end_utc))
+    if df.empty:
+        df["pnl_per_contract"] = []
+        return df
+    df["pnl_per_contract"] = df["pnl_net"].astype(float) / df["contracts"].astype(float)
+    return df
+
+
+def nbm_revisions_in_range(
+    conn: sqlite3.Connection, start_utc: str, end_utc: str
+) -> pd.DataFrame:
+    """
+    Morning p50_adj vs latest intraday p50_adj per event_date; flags revisions
+    >= 2F and counts paper_positions entered AFTER the first revision snapshot.
+
+    2F threshold is PROVISIONAL — mirrors NBM_SHIFT_THRESHOLD_F in
+    scripts/paul_morning_edge.py.  Keep the two in sync if the threshold moves.
+    """
+    start_date = start_utc[:10]
+    end_date = end_utc[:10]
+    sql = """
+        WITH morning AS (
+          SELECT event_date, AVG(nbm_p50_adj) AS morning_p50
+          FROM bracket_snapshots
+          WHERE snapshot_type='morning' AND nbm_p50_adj IS NOT NULL
+          GROUP BY event_date
+        ),
+        latest AS (
+          SELECT b.event_date, b.nbm_p50_adj AS latest_p50, b.snapshot_ts AS latest_ts
+          FROM bracket_snapshots b
+          WHERE b.snapshot_type='intraday' AND b.nbm_p50_adj IS NOT NULL
+            AND b.snapshot_ts = (
+                SELECT MAX(snapshot_ts) FROM bracket_snapshots
+                WHERE event_date = b.event_date
+                  AND snapshot_type='intraday'
+                  AND nbm_p50_adj IS NOT NULL
+            )
+        ),
+        first_revision AS (
+          SELECT b.event_date, MIN(b.snapshot_ts) AS first_rev_ts
+          FROM bracket_snapshots b
+          JOIN morning m ON m.event_date = b.event_date
+          WHERE b.snapshot_type='intraday' AND b.nbm_p50_adj IS NOT NULL
+            AND ABS(b.nbm_p50_adj - m.morning_p50) >= 2.0
+          GROUP BY b.event_date
+        )
+        SELECT m.event_date,
+               ROUND(m.morning_p50, 2) AS morning_p50,
+               ROUND(l.latest_p50, 2)  AS latest_p50,
+               ROUND(l.latest_p50 - m.morning_p50, 2) AS delta_f,
+               fr.first_rev_ts,
+               (SELECT COUNT(*) FROM paper_positions p
+                 WHERE p.event_date = m.event_date
+                   AND fr.first_rev_ts IS NOT NULL
+                   AND p.entry_ts > fr.first_rev_ts) AS trades_after_revision
+        FROM morning m
+        LEFT JOIN latest l ON l.event_date = m.event_date
+        LEFT JOIN first_revision fr ON fr.event_date = m.event_date
+        WHERE m.event_date >= ? AND m.event_date < ?
+        ORDER BY m.event_date DESC
+    """
+    return pd.read_sql_query(sql, conn, params=(start_date, end_date))
+
+
+def blocked_signals_by_reason(
+    conn: sqlite3.Connection, start_utc: str, end_utc: str
+) -> pd.DataFrame:
+    """Counts of blocked intraday_signals grouped by reason, within [start, end)."""
+    sql = """
+        SELECT COALESCE(reason, '(none)') AS reason, COUNT(*) AS n
+        FROM intraday_signals
+        WHERE executed = 0
+          AND snapshot_ts >= ? AND snapshot_ts < ?
+        GROUP BY reason
+        ORDER BY n DESC
+    """
+    return pd.read_sql_query(sql, conn, params=(start_utc, end_utc))
+
+
+def blocked_signals_recent(
+    conn: sqlite3.Connection, start_utc: str, end_utc: str, limit: int = 20
+) -> pd.DataFrame:
+    """Most-recent blocked intraday_signals within [start, end)."""
+    sql = """
+        SELECT snapshot_ts, bracket_label, signal_type, reason,
+               edge, model_prob, market_price
+        FROM intraday_signals
+        WHERE executed = 0
+          AND snapshot_ts >= ? AND snapshot_ts < ?
+        ORDER BY snapshot_ts DESC
+        LIMIT ?
+    """
+    return pd.read_sql_query(sql, conn, params=(start_utc, end_utc, limit))
+
+
 def fee_details(conn: sqlite3.Connection) -> dict:
     """Aggregate fee accounting across all closed positions (sanity check vs intraday_engine.estimate_fee)."""
     row = conn.execute(
