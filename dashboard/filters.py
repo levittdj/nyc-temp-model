@@ -25,7 +25,7 @@ except ImportError:
 ET = ZoneInfo("America/New_York")
 
 _OPTIONS = ["Today", "Last 7 days", "Last 30 days", "All time", "Custom"]
-_DEFAULT = "Last 7 days"
+_DEFAULT = "Today"
 
 
 def _et_midnight_utc(d: date) -> str:
