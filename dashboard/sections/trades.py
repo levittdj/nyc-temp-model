@@ -96,13 +96,15 @@ def render_open_positions(
     conn,
     today_high_val: float | None = None,
     today_high_src: str = "",
+    today_high_ts: str | None = None,
 ) -> None:
     section_header("POSITIONS", "Open positions")
     if today_high_val is not None:
+        _ts_str = f"  ·  as of {to_et(today_high_ts)} ET" if today_high_ts else ""
         st.metric(
             "Today's High",
             f"{today_high_val:.0f}°F",
-            delta=today_high_src or None,
+            delta=f"{today_high_src}{_ts_str}" if today_high_src else None,
             delta_color="off",
         )
     op = open_positions_with_unrealized(conn)

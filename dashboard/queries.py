@@ -64,37 +64,40 @@ def trades_in_range(
 
 def today_high(
     conn: sqlite3.Connection, event_date: str
-) -> tuple[Optional[float], str]:
+) -> tuple[Optional[float], str, Optional[str]]:
     """
     Best available observed high for event_date.
     Priority: actual_max_f (backfilled) → dsm running_high_f → observed_max_f_at_snapshot.
-    Returns (value_or_None, source_label).
+    Returns (value_or_None, source_label, timestamp_utc_or_None).
     """
     # 1. Settled/backfilled
     row = conn.execute(
-        "SELECT actual_max_f FROM bracket_snapshots WHERE event_date=? AND actual_max_f IS NOT NULL LIMIT 1",
+        "SELECT actual_max_f, MAX(snapshot_ts) FROM bracket_snapshots WHERE event_date=? AND actual_max_f IS NOT NULL",
         (event_date,),
     ).fetchone()
     if row and row[0] is not None:
-        return float(row[0]), "final"
+        return float(row[0]), "final", row[1]
 
-    # 2. DSM official running high
+    # 2. DSM official running high — fetch the issuance_ts of the max row
     row = conn.execute(
-        "SELECT MAX(running_high_f) FROM dsm_observations WHERE event_date=?",
+        """SELECT running_high_f, issuance_ts FROM dsm_observations
+           WHERE event_date=? ORDER BY running_high_f DESC LIMIT 1""",
         (event_date,),
     ).fetchone()
     if row and row[0] is not None:
-        return float(row[0]), "DSM"
+        return float(row[0]), "DSM", row[1]
 
     # 3. Collector intraday observed max (least authoritative)
     row = conn.execute(
-        "SELECT MAX(observed_max_f_at_snapshot) FROM bracket_snapshots WHERE event_date=?",
+        """SELECT observed_max_f_at_snapshot, snapshot_ts FROM bracket_snapshots
+           WHERE event_date=? AND observed_max_f_at_snapshot IS NOT NULL
+           ORDER BY observed_max_f_at_snapshot DESC LIMIT 1""",
         (event_date,),
     ).fetchone()
     if row and row[0] is not None:
-        return float(row[0]), "intraday"
+        return float(row[0]), "intraday", row[1]
 
-    return None, ""
+    return None, "", None
 
 
 def cumulative_net_pnl_all_time(conn: sqlite3.Connection) -> float:

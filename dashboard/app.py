@@ -78,7 +78,7 @@ win_rate = float((closed["pnl_net"] > 0).mean()) if n_closed else 0.0
 fee_drag_pct = fee_sum / max(abs(pnl_gross_sum), 0.01) * 100.0
 
 _today_et = datetime.now(_ET).date().isoformat()
-_high_val, _high_src = today_high(conn, _today_et)
+_high_val, _high_src, _high_ts = today_high(conn, _today_et)
 _src_label = {"final": "Settled", "DSM": "DSM", "intraday": "Snapshot"}.get(_high_src, "")
 _high_display = f"{_high_val:.0f}°F" if _high_val is not None else "—"
 
@@ -91,7 +91,7 @@ k5.metric("All-time Net P&L", dollars(cum_all))
 
 render_equity_curve(closed)
 render_trade_log(trades)
-render_open_positions(conn, today_high_val=_high_val, today_high_src=_src_label)
+render_open_positions(conn, today_high_val=_high_val, today_high_src=_src_label, today_high_ts=_high_ts)
 render_signal_decomposition(conn)
 render_signal_type_breakdown(conn)
 # render_calibration(conn, start_utc, end_utc)
