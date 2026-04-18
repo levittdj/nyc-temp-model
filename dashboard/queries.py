@@ -88,10 +88,10 @@ def today_high(
         return float(row[0]), "DSM", row[1]
 
     # 3. Collector intraday observed max (least authoritative)
+    # Use MAX(snapshot_ts) so the timestamp reflects the last collector run, not when the max was first hit.
     row = conn.execute(
-        """SELECT observed_max_f_at_snapshot, snapshot_ts FROM bracket_snapshots
-           WHERE event_date=? AND observed_max_f_at_snapshot IS NOT NULL
-           ORDER BY observed_max_f_at_snapshot DESC LIMIT 1""",
+        """SELECT MAX(observed_max_f_at_snapshot), MAX(snapshot_ts) FROM bracket_snapshots
+           WHERE event_date=? AND observed_max_f_at_snapshot IS NOT NULL""",
         (event_date,),
     ).fetchone()
     if row and row[0] is not None:
