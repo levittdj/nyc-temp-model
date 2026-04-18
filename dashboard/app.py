@@ -79,7 +79,7 @@ fee_drag_pct = fee_sum / max(abs(pnl_gross_sum), 0.01) * 100.0
 
 _today_et = datetime.now(_ET).date().isoformat()
 _high_val, _high_src = today_high(conn, _today_et)
-_high_label = f"Today's High ({_high_src})" if _high_src else "Today's High"
+_src_label = {"final": "Settled", "DSM": "DSM", "intraday": "Snapshot"}.get(_high_src, "")
 _high_display = f"{_high_val:.0f}°F" if _high_val is not None else "—"
 
 k1, k2, k3, k4, k5, k6 = st.columns(6)
@@ -88,7 +88,7 @@ k2.metric("Win rate", f"{win_rate * 100:.1f}%")
 k3.metric("Trades closed", n_closed)
 k4.metric("Fee drag", f"{fee_drag_pct:.1f}%")
 k5.metric("All-time Net P&L", dollars(cum_all))
-k6.metric(_high_label, _high_display)
+k6.metric("Today's High", _high_display, delta=_src_label or None, delta_color="off")
 
 render_equity_curve(closed)
 render_trade_log(trades)
