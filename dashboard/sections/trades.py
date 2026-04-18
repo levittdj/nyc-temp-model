@@ -53,8 +53,19 @@ def render_equity_curve(closed: pd.DataFrame) -> None:
     )
 
 
-def render_trade_log(trades: pd.DataFrame) -> None:
+def render_trade_log(
+    trades: pd.DataFrame,
+    today_high_val: float | None = None,
+    today_high_src: str = "",
+) -> None:
     section_header("TRADES", "Trade log")
+    if today_high_val is not None:
+        st.metric(
+            "Today's High",
+            f"{today_high_val:.0f}°F",
+            delta=today_high_src or None,
+            delta_color="off",
+        )
     if trades.empty:
         st.info("No trades in this range.")
         return

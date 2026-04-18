@@ -82,16 +82,15 @@ _high_val, _high_src = today_high(conn, _today_et)
 _src_label = {"final": "Settled", "DSM": "DSM", "intraday": "Snapshot"}.get(_high_src, "")
 _high_display = f"{_high_val:.0f}°F" if _high_val is not None else "—"
 
-k1, k2, k3, k4, k5, k6 = st.columns(6)
+k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric(f"Period Net P&L ({tf['label']})", dollars(pnl_net_sum))
 k2.metric("Win rate", f"{win_rate * 100:.1f}%")
 k3.metric("Trades closed", n_closed)
 k4.metric("Fee drag", f"{fee_drag_pct:.1f}%")
 k5.metric("All-time Net P&L", dollars(cum_all))
-k6.metric("Today's High", _high_display, delta=_src_label or None, delta_color="off")
 
 render_equity_curve(closed)
-render_trade_log(trades)
+render_trade_log(trades, today_high_val=_high_val, today_high_src=_src_label)
 render_open_positions(conn)
 render_signal_decomposition(conn)
 render_signal_type_breakdown(conn)
