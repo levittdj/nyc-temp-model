@@ -62,6 +62,41 @@ def trades_in_range(
     return pd.read_sql_query(sql, conn, params=(start_utc, end_utc))
 
 
+def today_high(
+    conn: sqlite3.Connection, event_date: str
+) -> tuple[Optional[float], str]:
+    """
+    Best available observed high for event_date.
+    Priority: actual_max_f (backfilled) → dsm running_high_f → observed_max_f_at_snapshot.
+    Returns (value_or_None, source_label).
+    """
+    # 1. Settled/backfilled
+    row = conn.execute(
+        "SELECT actual_max_f FROM bracket_snapshots WHERE event_date=? AND actual_max_f IS NOT NULL LIMIT 1",
+        (event_date,),
+    ).fetchone()
+    if row and row[0] is not None:
+        return float(row[0]), "final"
+
+    # 2. DSM official running high
+    row = conn.execute(
+        "SELECT MAX(running_high_f) FROM dsm_observations WHERE event_date=?",
+        (event_date,),
+    ).fetchone()
+    if row and row[0] is not None:
+        return float(row[0]), "DSM"
+
+    # 3. Collector intraday observed max (least authoritative)
+    row = conn.execute(
+        "SELECT MAX(observed_max_f_at_snapshot) FROM bracket_snapshots WHERE event_date=?",
+        (event_date,),
+    ).fetchone()
+    if row and row[0] is not None:
+        return float(row[0]), "intraday"
+
+    return None, ""
+
+
 def cumulative_net_pnl_all_time(conn: sqlite3.Connection) -> float:
     """Sum(pnl_net) over all closed positions, no date filter."""
     row = conn.execute(

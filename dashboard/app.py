@@ -18,6 +18,7 @@ from queries import (
     closed_positions_in_range,
     cumulative_net_pnl_all_time,
     latest_snapshot_ts,
+    today_high,
     trades_in_range,
 )
 from sections import (
@@ -34,6 +35,13 @@ from sections import (
 )
 from sections._format import to_et
 from style import inject_global_css
+
+from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+_ET = ZoneInfo("America/New_York")
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "nyc_temp_log.sqlite"
 DB_PATH = Path(os.environ.get("NYC_TEMP_DB", str(_DEFAULT_DB)))
@@ -69,12 +77,18 @@ fee_sum = (
 win_rate = float((closed["pnl_net"] > 0).mean()) if n_closed else 0.0
 fee_drag_pct = fee_sum / max(abs(pnl_gross_sum), 0.01) * 100.0
 
-k1, k2, k3, k4, k5 = st.columns(5)
+_today_et = datetime.now(_ET).date().isoformat()
+_high_val, _high_src = today_high(conn, _today_et)
+_high_label = f"Today's High ({_high_src})" if _high_src else "Today's High"
+_high_display = f"{_high_val:.0f}°F" if _high_val is not None else "—"
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
 k1.metric(f"Period Net P&L ({tf['label']})", dollars(pnl_net_sum))
 k2.metric("Win rate", f"{win_rate * 100:.1f}%")
 k3.metric("Trades closed", n_closed)
 k4.metric("Fee drag", f"{fee_drag_pct:.1f}%")
 k5.metric("All-time Net P&L", dollars(cum_all))
+k6.metric(_high_label, _high_display)
 
 render_equity_curve(closed)
 render_trade_log(trades)
