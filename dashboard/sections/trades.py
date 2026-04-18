@@ -53,19 +53,8 @@ def render_equity_curve(closed: pd.DataFrame) -> None:
     )
 
 
-def render_trade_log(
-    trades: pd.DataFrame,
-    today_high_val: float | None = None,
-    today_high_src: str = "",
-) -> None:
+def render_trade_log(trades: pd.DataFrame) -> None:
     section_header("TRADES", "Trade log")
-    if today_high_val is not None:
-        st.metric(
-            "Today's High",
-            f"{today_high_val:.0f}°F",
-            delta=today_high_src or None,
-            delta_color="off",
-        )
     if trades.empty:
         st.info("No trades in this range.")
         return
@@ -103,8 +92,19 @@ def render_trade_log(
     )
 
 
-def render_open_positions(conn) -> None:
+def render_open_positions(
+    conn,
+    today_high_val: float | None = None,
+    today_high_src: str = "",
+) -> None:
     section_header("POSITIONS", "Open positions")
+    if today_high_val is not None:
+        st.metric(
+            "Today's High",
+            f"{today_high_val:.0f}°F",
+            delta=today_high_src or None,
+            delta_color="off",
+        )
     op = open_positions_with_unrealized(conn)
     if op.empty:
         st.info("No open positions.")
