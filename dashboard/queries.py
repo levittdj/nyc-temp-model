@@ -70,9 +70,9 @@ def today_high(
     Priority: actual_max_f (backfilled) → dsm running_high_f → observed_max_f_at_snapshot.
     Returns (value_or_None, source_label, timestamp_utc_or_None).
     """
-    # 1. Settled/backfilled
+    # 1. Settled/backfilled — NYC only
     row = conn.execute(
-        "SELECT actual_max_f, MAX(snapshot_ts) FROM bracket_snapshots WHERE event_date=? AND actual_max_f IS NOT NULL",
+        "SELECT actual_max_f, MAX(snapshot_ts) FROM bracket_snapshots WHERE event_date=? AND series_ticker='KXHIGHNY' AND actual_max_f IS NOT NULL",
         (event_date,),
     ).fetchone()
     if row and row[0] is not None:
@@ -87,11 +87,11 @@ def today_high(
     if row and row[0] is not None:
         return float(row[0]), "DSM", row[1]
 
-    # 3. Collector intraday observed max (least authoritative)
+    # 3. Collector intraday observed max (least authoritative) — NYC only
     # Use MAX(snapshot_ts) so the timestamp reflects the last collector run, not when the max was first hit.
     row = conn.execute(
         """SELECT MAX(observed_max_f_at_snapshot), MAX(snapshot_ts) FROM bracket_snapshots
-           WHERE event_date=? AND observed_max_f_at_snapshot IS NOT NULL""",
+           WHERE event_date=? AND series_ticker='KXHIGHNY' AND observed_max_f_at_snapshot IS NOT NULL""",
         (event_date,),
     ).fetchone()
     if row and row[0] is not None:
