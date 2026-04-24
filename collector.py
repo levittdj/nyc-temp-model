@@ -75,6 +75,17 @@ DSM_URL = "https://forecast.weather.gov/product.php?site=NWS&issuedby=NYC&produc
 CLI_URL = "https://forecast.weather.gov/product.php?site=OKX&product=CLI&issuedby=NYC"
 ASOS_URL = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 
+# --- Intraday signal stack toggles (PROVISIONAL) ---
+# TRAJECTORY_ENABLED: when False, the METAR trajectory-deviation shift is
+# *logged only* — compute_trajectory_deviation still runs so the
+# `trajectory_deviation_f` / `trajectory_confidence` columns stay populated
+# for replay-engine analysis, but the resulting shift is *not* combined into
+# the CDF.  Active live shifts with this flag off: HRRR only (plus Signal A
+# truncation which runs unconditionally).  Set back to True once trajectory
+# has been validated against out-of-sample data.  2026-04-17 live-stack
+# simplification ahead of the replay-engine build.
+TRAJECTORY_ENABLED = False
+
 
 def _parse_event_date_from_ticker(ticker: str) -> date:
     """
@@ -620,6 +631,12 @@ def main() -> int:
                         hrrr_shift_applied_f = 0.0
 
                 # --- Signal D: Trajectory deviation (today only) ---
+                # 2026-04-17: disabled in the live stack via TRAJECTORY_ENABLED.
+                # compute_trajectory_deviation still runs so the logged columns
+                # (trajectory_deviation_f, trajectory_confidence) stay populated
+                # for the replay engine.  trajectory_shift_component is held at
+                # None when the flag is False, so it cannot enter combine_shifts
+                # or apply_trajectory_shift below.
                 trajectory_deviation_f: Optional[float] = None
                 trajectory_confidence: Optional[float] = None
                 trajectory_shift_component: Optional[float] = None
@@ -640,7 +657,9 @@ def main() -> int:
                             trajectory_confidence = conf
                         except Exception:
                             pass
-                        if trajectory_deviation_f is not None and trajectory_confidence is not None:
+                        if (TRAJECTORY_ENABLED
+                                and trajectory_deviation_f is not None
+                                and trajectory_confidence is not None):
                             trajectory_shift_component = trajectory_deviation_f * trajectory_confidence
                     else:
                         print(
